@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Pac-Man</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 class="game-title">MULTIPLAYER PAC-MAN</h1>
+            <div class="game-info">
+                <span>SCORE: <span id="score">0</span></span>
+                <span>PELLETS: <span id="pellets">0</span></span>
+                <span>PLAYERS: <span id="playersCount">0</span></span>
+                <span id="connectionStatus" class="disconnected">Connecting...</span>
+            </div>
+        </header>
+
+        <main>
+            <!-- Join Game Form -->
+            <div id="joinForm" class="screen">
+                <div class="form-container">
+                    <h2>JOIN GAME</h2>
+                    <p>First player becomes Pac-Man, others become ghosts (max 4 ghosts)</p>
+                    <div class="input-group">
+                        <input type="text" id="playerName" placeholder="Enter your name" maxlength="20">
+                        <button id="joinButton" class="btn btn-primary">JOIN</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Waiting Room -->
+            <div id="waitingRoom" class="screen" style="display: none;">
+                <div class="waiting-container">
+                    <h2>WAITING FOR PLAYERS</h2>
+                    <p>Need at least 1 Pac-Man and 1 ghost to start</p>
+                    
+                    <div class="players-list">
+                        <h3>CONNECTED PLAYERS</h3>
+                        <div id="playersList"></div>
+                    </div>
+                    
+                    <button id="startButton" class="btn btn-success" style="display: none;" disabled>
+                        START GAME
+                    </button>
+                    
+                    <div class="instructions">
+                        <h3>HOW TO PLAY</h3>
+                        <p>Use <strong>ARROW KEYS</strong> to move</p>
+                        <p><strong>Pac-Man:</strong> Collect all pellets to win</p>
+                        <p><strong>Ghosts:</strong> Catch Pac-Man to win</p>
+                        <div class="power-ups">
+                            <h4>POWER-UPS (spawn every 30 seconds)</h4>
+                            <div class="power-up-item">
+                                <span class="power-up-icon speed">●</span>
+                                <span>Speed Boost (10 seconds)</span>
+                            </div>
+                            <div class="power-up-item">
+                                <span class="power-up-icon invincibility">●</span>
+                                <span>Invincibility (5 seconds)</span>
+                            </div>
+                            <div class="power-up-item">
+                                <span class="power-up-icon multiplier">●</span>
+                                <span>Pellet Multiplier (doubles score)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Canvas -->
+            <div id="gameContainer" class="screen" style="display: none;">
+                <div class="game-canvas-container">
+                    <canvas id="gameCanvas"></canvas>
+                </div>
+                <div class="game-controls">
+                    <div class="controls-info">
+                        <p>Use ARROW KEYS to move</p>
+                        <div class="game-stats">
+                            <span>Score: <span id="gameScore">0</span></span>
+                            <span>Pellets: <span id="gamePellets">0</span></span>
+                            <span>Players: <span id="gamePlayers">0</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Audio Elements -->
+    <audio id="backgroundMusic" loop>
+        <source src="sounds/background.mp3" type="audio/mpeg">
+    </audio>
+    
+    <audio id="pelletSound">
+        <source src="sounds/pellet.mp3" type="audio/mpeg">
+    </audio>
+    
+    <audio id="powerUpSound">
+        <source src="sounds/powerup.mp3" type="audio/mpeg">
+    </audio>
+    
+    <audio id="gameOverSound">
+        <source src="sounds/gameover.mp3" type="audio/mpeg">
+    </audio>
+
+    <!-- Scripts -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="js/js/game.js"></script>
+</body>
+</html>
+

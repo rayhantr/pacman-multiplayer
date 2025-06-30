@@ -1,0 +1,366 @@
+/* Reset and base styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Press Start 2P', cursive;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    color: #ffffff;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Header styles */
+header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.game-title {
+    font-size: 2.5rem;
+    color: #ffff00;
+    text-shadow: 3px 3px 0px #ff6600, 6px 6px 0px #ff0000;
+    margin-bottom: 20px;
+    animation: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+    from { text-shadow: 3px 3px 0px #ff6600, 6px 6px 0px #ff0000, 0 0 20px #ffff00; }
+    to { text-shadow: 3px 3px 0px #ff6600, 6px 6px 0px #ff0000, 0 0 30px #ffff00, 0 0 40px #ffff00; }
+}
+
+.game-info {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+}
+
+.game-info span {
+    background: rgba(0, 0, 0, 0.7);
+    padding: 8px 15px;
+    border: 2px solid #00ff00;
+    border-radius: 5px;
+}
+
+#connectionStatus.connected {
+    color: #00ff00;
+    border-color: #00ff00;
+}
+
+#connectionStatus.disconnected {
+    color: #ff0000;
+    border-color: #ff0000;
+}
+
+/* Screen layouts */
+.screen {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 60vh;
+}
+
+/* Join form styles */
+.form-container {
+    background: rgba(0, 0, 0, 0.8);
+    border: 3px solid #ffff00;
+    border-radius: 10px;
+    padding: 40px;
+    text-align: center;
+    max-width: 500px;
+    width: 100%;
+}
+
+.form-container h2 {
+    color: #ffff00;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+}
+
+.form-container p {
+    color: #cccccc;
+    margin-bottom: 30px;
+    font-size: 0.7rem;
+    line-height: 1.4;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    align-items: center;
+}
+
+input[type="text"] {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    padding: 15px;
+    border: 2px solid #00ff00;
+    background: rgba(0, 0, 0, 0.9);
+    color: #ffffff;
+    border-radius: 5px;
+    width: 100%;
+    max-width: 300px;
+    text-align: center;
+}
+
+input[type="text"]:focus {
+    outline: none;
+    border-color: #ffff00;
+    box-shadow: 0 0 10px #ffff00;
+}
+
+/* Button styles */
+.btn {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    padding: 15px 30px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    min-width: 120px;
+}
+
+.btn-primary {
+    background: linear-gradient(45deg, #ffff00, #ff6600);
+    color: #000000;
+    border: 2px solid #ffff00;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(45deg, #ff6600, #ffff00);
+    transform: scale(1.05);
+    box-shadow: 0 0 15px #ffff00;
+}
+
+.btn-success {
+    background: linear-gradient(45deg, #00ff00, #00cc00);
+    color: #000000;
+    border: 2px solid #00ff00;
+}
+
+.btn-success:hover:not(:disabled) {
+    background: linear-gradient(45deg, #00cc00, #00ff00);
+    transform: scale(1.05);
+    box-shadow: 0 0 15px #00ff00;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Waiting room styles */
+.waiting-container {
+    background: rgba(0, 0, 0, 0.8);
+    border: 3px solid #00ff00;
+    border-radius: 10px;
+    padding: 40px;
+    text-align: center;
+    max-width: 600px;
+    width: 100%;
+}
+
+.waiting-container h2 {
+    color: #00ff00;
+    margin-bottom: 15px;
+    font-size: 1.3rem;
+}
+
+.waiting-container > p {
+    color: #cccccc;
+    margin-bottom: 30px;
+    font-size: 0.7rem;
+}
+
+.players-list {
+    margin-bottom: 30px;
+}
+
+.players-list h3 {
+    color: #ffff00;
+    margin-bottom: 15px;
+    font-size: 0.9rem;
+}
+
+#playersList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.player-item {
+    padding: 10px;
+    border-radius: 5px;
+    font-size: 0.7rem;
+}
+
+.player-pacman {
+    background: rgba(255, 255, 0, 0.2);
+    border: 1px solid #ffff00;
+    color: #ffff00;
+}
+
+.player-ghost {
+    background: rgba(255, 0, 0, 0.2);
+    border: 1px solid #ff0000;
+    color: #ff0000;
+}
+
+/* Instructions */
+.instructions {
+    text-align: left;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #333;
+}
+
+.instructions h3, .instructions h4 {
+    color: #00ffff;
+    margin-bottom: 10px;
+    font-size: 0.8rem;
+}
+
+.instructions p {
+    color: #cccccc;
+    margin-bottom: 8px;
+    font-size: 0.6rem;
+    line-height: 1.3;
+}
+
+.power-ups {
+    margin-top: 15px;
+}
+
+.power-up-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 5px;
+    font-size: 0.6rem;
+    color: #cccccc;
+}
+
+.power-up-icon {
+    font-size: 1rem;
+    width: 20px;
+    text-align: center;
+}
+
+.power-up-icon.speed { color: #00ff00; }
+.power-up-icon.invincibility { color: #ff00ff; }
+.power-up-icon.multiplier { color: #00ffff; }
+
+/* Game canvas styles */
+.game-canvas-container {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
+#gameCanvas {
+    border: 3px solid #ffff00;
+    border-radius: 5px;
+    background: #000000;
+    box-shadow: 0 0 20px rgba(255, 255, 0, 0.3);
+}
+
+.game-controls {
+    text-align: center;
+}
+
+.controls-info p {
+    color: #cccccc;
+    margin-bottom: 15px;
+    font-size: 0.7rem;
+}
+
+.game-stats {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    flex-wrap: wrap;
+    font-size: 0.7rem;
+}
+
+.game-stats span {
+    background: rgba(0, 0, 0, 0.7);
+    padding: 8px 15px;
+    border: 2px solid #00ff00;
+    border-radius: 5px;
+    color: #00ff00;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    .game-title {
+        font-size: 1.8rem;
+    }
+    
+    .game-info {
+        gap: 15px;
+        font-size: 0.6rem;
+    }
+    
+    .form-container, .waiting-container {
+        padding: 20px;
+        margin: 0 10px;
+    }
+    
+    .btn {
+        font-size: 0.7rem;
+        padding: 12px 20px;
+    }
+    
+    #gameCanvas {
+        max-width: 100%;
+        height: auto;
+    }
+    
+    .game-stats {
+        gap: 15px;
+        font-size: 0.6rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .game-title {
+        font-size: 1.4rem;
+    }
+    
+    .game-info {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .input-group {
+        gap: 15px;
+    }
+    
+    .btn {
+        font-size: 0.6rem;
+        padding: 10px 15px;
+        min-width: 100px;
+    }
+}
+
