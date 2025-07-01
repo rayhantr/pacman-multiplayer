@@ -1,38 +1,44 @@
 "use strict";
 class PacManGame {
+    socket;
+    canvas;
+    ctx;
+    gameState;
+    CELL_SIZE = 30;
+    MAZE_WIDTH = 20;
+    MAZE_HEIGHT = 19;
+    animationFrame = null;
+    // Colors
+    COLORS = {
+        wall: '#0000ff',
+        path: '#000000',
+        pellet: '#ffff00',
+        pacman: '#ffff00',
+        ghost: {
+            red: '#ff0000',
+            pink: '#ffb8ff',
+            cyan: '#00ffff',
+            orange: '#ffb852',
+        },
+        powerUp: {
+            speed_boost: '#00ff00',
+            invincibility: '#ff00ff',
+            pellet_multiplier: '#00ffff',
+        },
+    };
     constructor() {
-        this.CELL_SIZE = 30;
-        this.MAZE_WIDTH = 20;
-        this.MAZE_HEIGHT = 19;
-        this.animationFrame = null;
-        // Colors
-        this.COLORS = {
-            wall: '#0000ff',
-            path: '#000000',
-            pellet: '#ffff00',
-            pacman: '#ffff00',
-            ghost: {
-                red: '#ff0000',
-                pink: '#ffb8ff',
-                cyan: '#00ffff',
-                orange: '#ffb852'
-            },
-            powerUp: {
-                speed_boost: '#00ff00',
-                invincibility: '#ff00ff',
-                pellet_multiplier: '#00ffff'
-            }
-        };
         this.initializeCanvas();
         this.initializeGameState();
         this.connectToServer();
+        this.setupSocketEvents();
         this.setupEventListeners();
         this.startGameLoop();
     }
     initializeCanvas() {
         this.canvas = document.getElementById('gameCanvas');
         if (!this.canvas) {
-            throw new Error('Game canvas not found');
+            console.error('Canvas element not found');
+            return;
         }
         this.ctx = this.canvas.getContext('2d');
         this.canvas.width = this.MAZE_WIDTH * this.CELL_SIZE;
@@ -49,38 +55,53 @@ class PacManGame {
             gameStarted: false,
             gameOver: false,
             playerId: null,
-            playerRole: null
+            playerRole: null,
+            selectedRoom: null,
+            rooms: [],
         };
     }
     connectToServer() {
         this.socket = io({
             transports: ['websocket', 'polling'],
             timeout: 10000,
-            forceNew: true
+            forceNew: true,
+        });
+        this.socket.on('connect', () => {
+            console.log('Connected to server');
+            this.updateConnectionStatus(true);
+        });
+        this.socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            this.updateConnectionStatus(false);
         });
         this.setupSocketEvents();
     }
     setupSocketEvents() {
+        // Re-enable join button on reconnection
         this.socket.on('connect', () => {
-            console.log('Connected to server successfully');
-            this.updateConnectionStatus(true);
-        });
-        this.socket.on('connect_error', (error) => {
-            console.error('Connection error:', error);
-            this.updateConnectionStatus(false);
-        });
-        this.socket.on('disconnect', (reason) => {
-            console.log('Disconnected from server:', reason);
-            this.updateConnectionStatus(false);
+            const joinButton = document.getElementById('joinButton');
+            if (joinButton && joinButton.textContent === 'JOINING...') {
+                joinButton.disabled = false;
+                joinButton.textContent = 'JOIN';
+            }
         });
         this.socket.on('join_success', (data) => {
+            console.log('Received join_success:', data);
             this.gameState.playerId = data.player_id;
             this.gameState.playerRole = data.role;
+            console.log('About to update game state with:', data.game_state);
             this.updateGameState(data.game_state);
+            console.log('Calling showWaitingRoom()');
             this.showWaitingRoom();
         });
         this.socket.on('join_failed', (data) => {
             alert('Failed to join game: ' + data.reason);
+            // Re-enable join button
+            const joinButton = document.getElementById('joinButton');
+            if (joinButton) {
+                joinButton.disabled = false;
+                joinButton.textContent = 'JOIN';
+            }
         });
         this.socket.on('player_joined', (data) => {
             this.gameState.players[data.player.id] = data.player;
@@ -98,18 +119,34 @@ class PacManGame {
         });
         this.socket.on('player_moved', (data) => {
             if (this.gameState.players[data.player_id]) {
-                this.gameState.players[data.player_id].x = data.x;
-                this.gameState.players[data.player_id].y = data.y;
-                this.gameState.players[data.player_id].direction = data.direction;
+                const player = this.gameState.players[data.player_id];
+                // Set up smooth movement interpolation
+                player.renderX = player.renderX ?? player.x;
+                player.renderY = player.renderY ?? player.y;
+                player.targetX = data.x;
+                player.targetY = data.y;
+                player.lastMoveTime = Date.now();
+                // Update actual position for game logic
+                player.x = data.x;
+                player.y = data.y;
+                player.direction = data.direction;
             }
             this.gameState.score = data.score;
             this.gameState.pelletsRemaining = data.pellets_remaining;
             this.updateGameInfo();
         });
+        this.socket.on('pellet_collected', (data) => {
+            // Remove pellet from client state
+            this.gameState.pellets.delete(data.position);
+            this.gameState.score = data.score;
+            this.gameState.pelletsRemaining = data.pellets_remaining;
+            this.updateGameInfo();
+            this.playPelletSound();
+        });
         this.socket.on('power_up_spawned', (data) => {
             this.gameState.powerUps[data.position] = {
                 type: data.type,
-                spawnTime: Date.now()
+                spawnTime: Date.now(),
             };
         });
         this.socket.on('power_up_collected', (data) => {
@@ -121,10 +158,27 @@ class PacManGame {
             this.showGameOverScreen(data.winner, data.score);
             this.stopBackgroundMusic();
         });
+        this.socket.on('game_restarted', (data) => {
+            this.gameState.gameStarted = false;
+            this.gameState.gameOver = false;
+            this.updateGameState(data.game_state);
+            this.showWaitingRoom();
+        });
+        // Room-related events
+        this.socket.on('rooms_list', (data) => {
+            this.gameState.rooms = data.rooms;
+            this.updateRoomsList();
+        });
+        this.socket.on('room_created', (data) => {
+            this.gameState.selectedRoom = data.roomId;
+            // Show the room code to the user
+            alert(`Room created successfully!\n\nRoom Code: ${data.roomName}\n\nShare this code with friends so they can join your room.`);
+            // Room creation automatically joins the room, so we should be getting join_success next
+        });
     }
     setupEventListeners() {
         // Keyboard controls
-        document.addEventListener('keydown', (event) => {
+        document.addEventListener('keydown', event => {
             if (!this.gameState.gameStarted || this.gameState.gameOver)
                 return;
             let direction = null;
@@ -147,25 +201,67 @@ class PacManGame {
                 this.socket.emit('player_move', { direction });
             }
         });
+        // Room selection buttons
+        const joinRoomButton = document.getElementById('joinRoomButton');
+        if (joinRoomButton) {
+            joinRoomButton.addEventListener('click', () => this.joinRoomByCode());
+        }
+        const quickJoinButton = document.getElementById('quickJoinButton');
+        if (quickJoinButton) {
+            quickJoinButton.addEventListener('click', () => this.quickJoin());
+        }
+        const createRoomButton = document.getElementById('createRoomButton');
+        if (createRoomButton) {
+            createRoomButton.addEventListener('click', () => this.showCreateRoomForm());
+        }
+        // Create room form buttons
+        const createRoomConfirmButton = document.getElementById('createRoomConfirmButton');
+        if (createRoomConfirmButton) {
+            createRoomConfirmButton.addEventListener('click', () => this.createRoom());
+        }
+        const backToRoomsButton = document.getElementById('backToRoomsButton');
+        if (backToRoomsButton) {
+            backToRoomsButton.addEventListener('click', () => this.showRoomSelection());
+        }
         // Join game button
         const joinButton = document.getElementById('joinButton');
         if (joinButton) {
             joinButton.addEventListener('click', () => this.joinGame());
+        }
+        const backToRoomsFromJoinButton = document.getElementById('backToRoomsFromJoinButton');
+        if (backToRoomsFromJoinButton) {
+            backToRoomsFromJoinButton.addEventListener('click', () => this.showRoomSelection());
         }
         // Start game button
         const startButton = document.getElementById('startButton');
         if (startButton) {
             startButton.addEventListener('click', () => this.startGame());
         }
-        // Enter key in name input
-        const nameInput = document.getElementById('playerName');
-        if (nameInput) {
-            nameInput.addEventListener('keypress', (event) => {
+        // Enter key handlers
+        const roomCodeInput = document.getElementById('roomCodeInput');
+        if (roomCodeInput) {
+            roomCodeInput.addEventListener('keypress', event => {
                 if (event.key === 'Enter') {
-                    this.joinGame();
+                    this.joinRoomByCode();
                 }
             });
         }
+        const nameInputs = ['playerName', 'newRoomName', 'hostPlayerName'];
+        nameInputs.forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                input.addEventListener('keypress', event => {
+                    if (event.key === 'Enter') {
+                        if (inputId === 'playerName') {
+                            this.joinGame();
+                        }
+                        else if (inputId === 'newRoomName' || inputId === 'hostPlayerName') {
+                            this.createRoom();
+                        }
+                    }
+                });
+            }
+        });
     }
     startGameLoop() {
         const gameLoop = () => {
@@ -180,6 +276,8 @@ class PacManGame {
         // Clear canvas
         this.ctx.fillStyle = '#000000';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        // Update player interpolation
+        this.updatePlayerInterpolation();
         // Draw maze
         this.drawMaze();
         // Draw pellets
@@ -188,6 +286,36 @@ class PacManGame {
         this.drawPowerUps();
         // Draw players
         this.drawPlayers();
+    }
+    updatePlayerInterpolation() {
+        const currentTime = Date.now();
+        const MOVEMENT_DURATION = 200; // milliseconds for smooth movement
+        Object.values(this.gameState.players).forEach(player => {
+            if (player.lastMoveTime && player.targetX !== undefined && player.targetY !== undefined) {
+                const elapsed = currentTime - player.lastMoveTime;
+                const progress = Math.min(elapsed / MOVEMENT_DURATION, 1);
+                // Use easing function for smoother animation
+                const easedProgress = this.easeOutCubic(progress);
+                const startX = player.renderX ?? player.targetX;
+                const startY = player.renderY ?? player.targetY;
+                player.renderX = startX + (player.targetX - startX) * easedProgress;
+                player.renderY = startY + (player.targetY - startY) * easedProgress;
+                // If animation is complete, snap to target
+                if (progress >= 1) {
+                    player.renderX = player.targetX;
+                    player.renderY = player.targetY;
+                    delete player.lastMoveTime;
+                }
+            }
+            else {
+                // Initialize render position if not set
+                player.renderX = player.renderX ?? player.x;
+                player.renderY = player.renderY ?? player.y;
+            }
+        });
+    }
+    easeOutCubic(t) {
+        return 1 - Math.pow(1 - t, 3);
     }
     drawMaze() {
         if (!this.gameState.maze.length)
@@ -225,8 +353,11 @@ class PacManGame {
     }
     drawPlayers() {
         Object.values(this.gameState.players).forEach(player => {
-            const centerX = player.x * this.CELL_SIZE + this.CELL_SIZE / 2;
-            const centerY = player.y * this.CELL_SIZE + this.CELL_SIZE / 2;
+            // Use interpolated positions for smooth movement
+            const renderX = player.renderX ?? player.x;
+            const renderY = player.renderY ?? player.y;
+            const centerX = renderX * this.CELL_SIZE + this.CELL_SIZE / 2;
+            const centerY = renderY * this.CELL_SIZE + this.CELL_SIZE / 2;
             if (player.role === 'pacman') {
                 this.ctx.fillStyle = this.COLORS.pacman;
             }
@@ -239,8 +370,9 @@ class PacManGame {
             this.ctx.fill();
         });
     }
-    joinGame() {
+    joinGame(roomCode) {
         const nameInput = document.getElementById('playerName');
+        const joinButton = document.getElementById('joinButton');
         const playerName = nameInput?.value.trim();
         if (!playerName) {
             alert('Please enter your name');
@@ -250,7 +382,18 @@ class PacManGame {
             alert('Not connected to server. Please wait for connection or refresh the page.');
             return;
         }
-        this.socket.emit('join_game', { name: playerName });
+        // Prevent multiple join attempts
+        if (joinButton) {
+            joinButton.disabled = true;
+            joinButton.textContent = 'JOINING...';
+        }
+        // Send room code in join request
+        const finalRoomCode = roomCode || this.gameState.selectedRoom || 'default';
+        const joinData = {
+            name: playerName,
+            roomCode: finalRoomCode,
+        };
+        this.socket.emit('join_game', joinData);
     }
     startGame() {
         this.socket.emit('start_game');
@@ -262,9 +405,9 @@ class PacManGame {
         });
         this.gameState.maze = gameState.maze;
         this.gameState.pellets = new Set(gameState.pellets);
-        this.gameState.powerUps = gameState.power_ups;
+        this.gameState.powerUps = gameState.powerUps;
         this.gameState.score = gameState.score;
-        this.gameState.pelletsRemaining = gameState.pellets_remaining;
+        this.gameState.pelletsRemaining = gameState.pelletsRemaining;
     }
     showWaitingRoom() {
         const joinForm = document.getElementById('joinForm');
@@ -334,8 +477,109 @@ class PacManGame {
         }
     }
     showGameOverScreen(winner, score) {
+        // Hide game canvas
+        const gameContainer = document.getElementById('gameContainer');
+        if (gameContainer)
+            gameContainer.style.display = 'none';
+        // Create game over screen
+        const gameOverScreen = document.createElement('div');
+        gameOverScreen.id = 'gameOverScreen';
+        gameOverScreen.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.9);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      font-family: 'Courier New', monospace;
+      z-index: 1000;
+    `;
         const message = winner === this.gameState.playerRole ? 'You Win!' : 'Game Over!';
-        alert(message + '\nWinner: ' + winner.toUpperCase() + '\nFinal Score: ' + score);
+        gameOverScreen.innerHTML = `
+      <div style="text-align: center;">
+        <h1 style="font-size: 3em; margin: 0; color: ${winner === this.gameState.playerRole ? '#00FF00' : '#FF0000'};">${message}</h1>
+        <p style="font-size: 1.5em; margin: 20px 0;">Winner: ${winner.toUpperCase()}</p>
+        <p style="font-size: 1.2em; margin: 20px 0;">Final Score: ${score}</p>
+        <div style="margin-top: 40px;">
+          <button id="restartButton" style="
+            padding: 15px 30px;
+            font-size: 1.2em;
+            margin: 0 10px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+          ">Play Again</button>
+          <button id="backToLobbyButton" style="
+            padding: 15px 30px;
+            font-size: 1.2em;
+            margin: 0 10px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+          ">Back to Lobby</button>
+        </div>
+      </div>
+    `;
+        document.body.appendChild(gameOverScreen);
+        // Add event listeners
+        const restartButton = document.getElementById('restartButton');
+        const backToLobbyButton = document.getElementById('backToLobbyButton');
+        if (restartButton) {
+            restartButton.addEventListener('click', () => this.restartGame());
+        }
+        if (backToLobbyButton) {
+            backToLobbyButton.addEventListener('click', () => this.backToLobby());
+        }
+    }
+    restartGame() {
+        // Reset game state
+        this.gameState.gameStarted = false;
+        this.gameState.gameOver = false;
+        this.gameState.score = 0;
+        this.gameState.pelletsRemaining = 0;
+        // Remove game over screen
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        if (gameOverScreen) {
+            gameOverScreen.remove();
+        }
+        // Show waiting room
+        this.showWaitingRoom();
+        // Request restart from server if user is Pac-Man
+        if (this.gameState.playerRole === 'pacman') {
+            this.socket.emit('restart_game');
+        }
+    }
+    backToLobby() {
+        // Reset game state
+        this.gameState.gameStarted = false;
+        this.gameState.gameOver = false;
+        this.gameState.playerId = null;
+        this.gameState.playerRole = null;
+        this.gameState.players = {};
+        // Remove game over screen
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        if (gameOverScreen) {
+            gameOverScreen.remove();
+        }
+        // Show room selection
+        this.showRoomSelection();
+        // Clear name input
+        const nameInput = document.getElementById('playerName');
+        if (nameInput)
+            nameInput.value = '';
+        // Disconnect and reconnect to get fresh state
+        this.socket.emit('leave_game');
     }
     playBackgroundMusic() {
         const bgMusic = document.getElementById('backgroundMusic');
@@ -357,9 +601,126 @@ class PacManGame {
             powerUpSound.play().catch(e => console.log('Audio play failed:', e));
         }
     }
+    playPelletSound() {
+        const pelletSound = document.getElementById('pelletSound');
+        if (pelletSound) {
+            pelletSound.volume = 0.5;
+            pelletSound.play().catch(e => console.log('Audio play failed:', e));
+        }
+    }
+    requestRoomsList() {
+        this.socket.emit('list_rooms');
+    }
+    updateRoomsList() {
+        const roomsList = document.getElementById('roomsList');
+        if (!roomsList)
+            return;
+        if (this.gameState.rooms.length === 0) {
+            roomsList.innerHTML = '<div class="loading">No rooms available</div>';
+            return;
+        }
+        roomsList.innerHTML = '';
+        this.gameState.rooms.forEach(room => {
+            const roomItem = document.createElement('div');
+            roomItem.className = 'room-item';
+            roomItem.innerHTML = `
+        <div class="room-info">
+          <div class="room-name">${room.name}</div>
+          <div class="room-details">Players: ${room.playerCount}/${room.maxPlayers}</div>
+        </div>
+        <div class="room-status ${this.getRoomStatusClass(room)}">${this.getRoomStatusText(room)}</div>
+        <button class="btn btn-primary room-join-btn" 
+                ${room.playerCount >= room.maxPlayers || room.isStarted ? 'disabled' : ''}
+                onclick="game.joinSpecificRoom('${room.id}')">
+          JOIN
+        </button>
+      `;
+            roomsList.appendChild(roomItem);
+        });
+    }
+    getRoomStatusClass(room) {
+        if (room.playerCount >= room.maxPlayers)
+            return 'full';
+        if (room.isStarted)
+            return 'playing';
+        return 'waiting';
+    }
+    getRoomStatusText(room) {
+        if (room.playerCount >= room.maxPlayers)
+            return 'FULL';
+        if (room.isStarted)
+            return 'PLAYING';
+        return 'WAITING';
+    }
+    quickJoin() {
+        this.gameState.selectedRoom = 'default'; // Default room
+        this.showJoinForm();
+    }
+    joinRoomByCode() {
+        const roomCodeInput = document.getElementById('roomCodeInput');
+        const roomCode = roomCodeInput?.value.trim();
+        if (!roomCode) {
+            alert('Please enter a room code');
+            return;
+        }
+        // Store the room code and show join form
+        this.gameState.selectedRoom = roomCode;
+        this.showJoinForm();
+    }
+    showCreateRoomForm() {
+        this.hideAllScreens();
+        const createRoomForm = document.getElementById('createRoomForm');
+        if (createRoomForm)
+            createRoomForm.style.display = 'block';
+    }
+    showRoomSelection() {
+        this.hideAllScreens();
+        const roomSelection = document.getElementById('roomSelection');
+        if (roomSelection)
+            roomSelection.style.display = 'block';
+    }
+    showJoinForm() {
+        this.hideAllScreens();
+        const joinForm = document.getElementById('joinForm');
+        if (joinForm)
+            joinForm.style.display = 'block';
+    }
+    hideAllScreens() {
+        const screens = ['roomSelection', 'createRoomForm', 'joinForm', 'waitingRoom', 'gameContainer'];
+        screens.forEach(screenId => {
+            const screen = document.getElementById(screenId);
+            if (screen)
+                screen.style.display = 'none';
+        });
+    }
+    createRoom() {
+        const roomNameInput = document.getElementById('newRoomName');
+        const hostNameInput = document.getElementById('hostPlayerName');
+        const roomName = roomNameInput?.value.trim();
+        const hostName = hostNameInput?.value.trim();
+        if (!roomName) {
+            alert('Please enter a room name');
+            return;
+        }
+        if (!hostName) {
+            alert('Please enter your name');
+            return;
+        }
+        if (!this.socket.connected) {
+            alert('Not connected to server. Please wait for connection or refresh the page.');
+            return;
+        }
+        this.socket.emit('create_room', { name: hostName, roomName: roomName });
+    }
+    joinSpecificRoom(roomId) {
+        this.gameState.selectedRoom = roomId;
+        this.showJoinForm();
+    }
 }
+// Global game instance for HTML onclick handlers
+let game;
 // Initialize game when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new PacManGame();
+    game = new PacManGame();
 });
 //# sourceMappingURL=game.js.map

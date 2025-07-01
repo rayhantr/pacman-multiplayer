@@ -1,47 +1,81 @@
 {
   "name": "pacman-typescript",
   "version": "1.0.0",
+  "type": "module",
   "main": "dist/server/index.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/server/index.js",
-    "dev": "nodemon --exec ts-node src/server/index.ts",
+    "build": "tsc && tsc --project tsconfig.client.json",
+    "build:server": "tsc",
     "build:client": "tsc --project tsconfig.client.json",
-    "watch": "tsc --watch",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix",
-    "format": "prettier --write src/**/*.ts",
+    "start": "node dist/server/index.js",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "tsx --watch src/server/index.ts",
+    "dev:client": "tsc --project tsconfig.client.json --watch",
+    "lint": "eslint . --ext ts,tsx",
+    "lint:fix": "eslint . --ext ts,tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "type-check": "tsc --noEmit && tsc --project tsconfig.client.json --noEmit",
-    "quality": "npm run type-check && npm run lint"
+    "quality": "npm run type-check && npm run lint && npm run format:check",
+    "clean": "rimraf dist",
+    "prebuild": "npm run clean",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
+    "prepare": "husky"
   },
   "keywords": [
     "pacman",
     "multiplayer",
     "typescript",
-    "websocket"
+    "websocket",
+    "game",
+    "realtime"
   ],
   "author": "",
   "license": "ISC",
-  "description": "Multiplayer Pac-Man game built with TypeScript",
+  "description": "Modern Multiplayer Pac-Man game built with TypeScript and Socket.IO",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=9.0.0"
+  },
   "dependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.3",
-    "@types/node": "^24.0.7",
-    "@types/socket.io-client": "^1.4.36",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
-    "typescript": "^5.8.3"
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
-    "@eslint/js": "^9.30.0",
-    "@typescript-eslint/eslint-plugin": "^8.35.0",
-    "@typescript-eslint/parser": "^8.35.0",
-    "eslint": "^9.30.0",
-    "eslint-config-prettier": "^10.1.5",
+    "@eslint/js": "^9.15.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.10.1",
+    "@typescript-eslint/eslint-plugin": "^8.17.0",
+    "@typescript-eslint/parser": "^8.17.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.15.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "globals": "^15.13.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.10",
     "nodemon": "^3.1.10",
-    "prettier": "^3.6.2",
-    "ts-node": "^10.9.2"
+    "prettier": "^3.4.2",
+    "rimraf": "^6.0.1",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.17.0",
+    "vitest": "^2.1.8"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{js,jsx,json,css,md}": [
+      "prettier --write"
+    ]
   }
 }

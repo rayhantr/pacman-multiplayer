@@ -1,23 +1,34 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "ES2020",
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    /* Language and Environment */
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    /* Emit */
     "outDir": "./public/js",
     "rootDir": "./src/client",
-    "moduleResolution": "node",
+    "declaration": false,
+    "declarationMap": false,
+
+    /* Modules */
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "noImplicitAny": false
+
+    /* Type Checking - Slightly relaxed for client code */
+    "noImplicitAny": false,
+    "strictPropertyInitialization": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
-  "include": [
-    "src/client/**/*"
-  ],
+  "include": ["src/client/**/*"],
   "exclude": [
     "node_modules",
     "dist",
-    "src/server"
+    "src/server",
+    "**/*.test.ts",
+    "**/*.spec.ts"
   ]
 }
-

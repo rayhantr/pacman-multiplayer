@@ -1,115 +1,220 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Modern Multiplayer Pac-Man game built with TypeScript and Socket.IO"
+    />
+    <meta name="keywords" content="pacman, multiplayer, game, typescript, socket.io" />
     <title>Multiplayer Pac-Man</title>
-    <link rel="stylesheet" href="css/styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-</head>
-<body>
+    <link rel="stylesheet" href="css/styles.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/x-icon" href="images/pacman-right.png" />
+  </head>
+  <body>
     <div class="container">
-        <header>
-            <h1 class="game-title">MULTIPLAYER PAC-MAN</h1>
-            <div class="game-info">
-                <span>SCORE: <span id="score">0</span></span>
-                <span>PELLETS: <span id="pellets">0</span></span>
-                <span>PLAYERS: <span id="playersCount">0</span></span>
-                <span id="connectionStatus" class="disconnected">Connecting...</span>
-            </div>
-        </header>
+      <header>
+        <h1 class="game-title">MULTIPLAYER PAC-MAN</h1>
+        <div class="game-info">
+          <span>SCORE: <span id="score">0</span></span>
+          <span>PELLETS: <span id="pellets">0</span></span>
+          <span>PLAYERS: <span id="playersCount">0</span></span>
+          <span id="connectionStatus" class="disconnected">Connecting...</span>
+        </div>
+      </header>
 
-        <main>
-            <!-- Join Game Form -->
-            <div id="joinForm" class="screen">
-                <div class="form-container">
-                    <h2>JOIN GAME</h2>
-                    <p>First player becomes Pac-Man, others become ghosts (max 4 ghosts)</p>
-                    <div class="input-group">
-                        <input type="text" id="playerName" placeholder="Enter your name" maxlength="20">
-                        <button id="joinButton" class="btn btn-primary">JOIN</button>
-                    </div>
-                </div>
-            </div>
+      <main>
+        <!-- Room Selection Screen -->
+        <div id="roomSelection" class="screen">
+          <div class="form-container">
+            <h2>JOIN OR CREATE ROOM</h2>
+            <p>Enter a room code to join, or create your own room</p>
 
-            <!-- Waiting Room -->
-            <div id="waitingRoom" class="screen" style="display: none;">
-                <div class="waiting-container">
-                    <h2>WAITING FOR PLAYERS</h2>
-                    <p>Need at least 1 Pac-Man and 1 ghost to start</p>
-                    
-                    <div class="players-list">
-                        <h3>CONNECTED PLAYERS</h3>
-                        <div id="playersList"></div>
-                    </div>
-                    
-                    <button id="startButton" class="btn btn-success" style="display: none;" disabled>
-                        START GAME
-                    </button>
-                    
-                    <div class="instructions">
-                        <h3>HOW TO PLAY</h3>
-                        <p>Use <strong>ARROW KEYS</strong> to move</p>
-                        <p><strong>Pac-Man:</strong> Collect all pellets to win</p>
-                        <p><strong>Ghosts:</strong> Catch Pac-Man to win</p>
-                        <div class="power-ups">
-                            <h4>POWER-UPS (spawn every 30 seconds)</h4>
-                            <div class="power-up-item">
-                                <span class="power-up-icon speed">●</span>
-                                <span>Speed Boost (10 seconds)</span>
-                            </div>
-                            <div class="power-up-item">
-                                <span class="power-up-icon invincibility">●</span>
-                                <span>Invincibility (5 seconds)</span>
-                            </div>
-                            <div class="power-up-item">
-                                <span class="power-up-icon multiplier">●</span>
-                                <span>Pellet Multiplier (doubles score)</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            <div class="input-group">
+              <input
+                type="text"
+                id="roomCodeInput"
+                placeholder="Enter room code"
+                maxlength="30"
+                autocomplete="off"
+              />
             </div>
 
-            <!-- Game Canvas -->
-            <div id="gameContainer" class="screen" style="display: none;">
-                <div class="game-canvas-container">
-                    <canvas id="gameCanvas"></canvas>
-                </div>
-                <div class="game-controls">
-                    <div class="controls-info">
-                        <p>Use ARROW KEYS to move</p>
-                        <div class="game-stats">
-                            <span>Score: <span id="gameScore">0</span></span>
-                            <span>Pellets: <span id="gamePellets">0</span></span>
-                            <span>Players: <span id="gamePlayers">0</span></span>
-                        </div>
-                    </div>
-                </div>
+            <div class="room-actions">
+              <button id="joinRoomButton" class="btn btn-primary" type="button">JOIN ROOM</button>
+              <button id="quickJoinButton" class="btn btn-secondary" type="button">
+                QUICK JOIN (Default Room)
+              </button>
+              <button id="createRoomButton" class="btn btn-success" type="button">
+                CREATE NEW ROOM
+              </button>
             </div>
-        </main>
+
+            <div class="room-info">
+              <h3>HOW IT WORKS</h3>
+              <p><strong>Join Room:</strong> Enter the room code shared by the room creator</p>
+              <p><strong>Quick Join:</strong> Join the default public room</p>
+              <p>
+                <strong>Create Room:</strong> Make a new room with your custom name as the room code
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Create Room Form -->
+        <div id="createRoomForm" class="screen" style="display: none">
+          <div class="form-container">
+            <h2>CREATE ROOM</h2>
+            <p>Enter your details to create a new game room</p>
+            <div class="input-group">
+              <input
+                type="text"
+                id="newRoomName"
+                placeholder="Room name"
+                maxlength="30"
+                autocomplete="off"
+                required
+              />
+            </div>
+            <div class="input-group">
+              <input
+                type="text"
+                id="hostPlayerName"
+                placeholder="Your name"
+                maxlength="20"
+                autocomplete="off"
+                required
+              />
+            </div>
+            <div class="form-actions">
+              <button id="createRoomConfirmButton" class="btn btn-primary" type="button">
+                CREATE ROOM
+              </button>
+              <button id="backToRoomsButton" class="btn btn-secondary" type="button">BACK</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Join Game Form -->
+        <div id="joinForm" class="screen" style="display: none">
+          <div class="form-container">
+            <h2>JOIN GAME</h2>
+            <p>First player becomes Pac-Man, others become ghosts (max 4 ghosts)</p>
+            <div class="input-group">
+              <input
+                type="text"
+                id="playerName"
+                placeholder="Enter your name"
+                maxlength="20"
+                autocomplete="off"
+                required
+              />
+            </div>
+            <div class="form-actions">
+              <button id="joinButton" class="btn btn-primary" type="button">JOIN</button>
+              <button id="backToRoomsFromJoinButton" class="btn btn-secondary" type="button">
+                BACK TO ROOMS
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Waiting Room -->
+        <div id="waitingRoom" class="screen" style="display: none">
+          <div class="waiting-container">
+            <h2>WAITING FOR PLAYERS</h2>
+            <p>Need at least 1 Pac-Man and 1 ghost to start</p>
+
+            <div class="players-list">
+              <h3>CONNECTED PLAYERS</h3>
+              <div id="playersList" role="list"></div>
+            </div>
+
+            <button
+              id="startButton"
+              class="btn btn-success"
+              style="display: none"
+              disabled
+              type="button"
+            >
+              START GAME
+            </button>
+
+            <div class="instructions">
+              <h3>HOW TO PLAY</h3>
+              <p>Use <strong>ARROW KEYS</strong> to move</p>
+              <p><strong>Pac-Man:</strong> Collect all pellets to win</p>
+              <p><strong>Ghosts:</strong> Catch Pac-Man to win</p>
+              <div class="power-ups">
+                <h4>POWER-UPS (spawn every 30 seconds)</h4>
+                <div class="power-up-item">
+                  <span class="power-up-icon speed" aria-label="Speed boost">●</span>
+                  <span>Speed Boost (10 seconds)</span>
+                </div>
+                <div class="power-up-item">
+                  <span class="power-up-icon invincibility" aria-label="Invincibility">●</span>
+                  <span>Invincibility (5 seconds)</span>
+                </div>
+                <div class="power-up-item">
+                  <span class="power-up-icon multiplier" aria-label="Score multiplier">●</span>
+                  <span>Pellet Multiplier (doubles score)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Game Canvas -->
+        <div id="gameContainer" class="screen" style="display: none">
+          <div class="game-canvas-container">
+            <canvas id="gameCanvas" aria-label="Game area"></canvas>
+          </div>
+          <div class="game-controls">
+            <div class="controls-info">
+              <p>Use ARROW KEYS to move</p>
+              <div class="game-stats">
+                <span>Score: <span id="gameScore">0</span></span>
+                <span>Pellets: <span id="gamePellets">0</span></span>
+                <span>Players: <span id="gamePlayers">0</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
 
     <!-- Audio Elements -->
-    <audio id="backgroundMusic" loop>
-        <source src="sounds/background.mp3" type="audio/mpeg">
+    <audio id="backgroundMusic" loop preload="metadata">
+      <source src="sounds/background.mp3" type="audio/mpeg" />
+      Your browser does not support the audio element.
     </audio>
-    
-    <audio id="pelletSound">
-        <source src="sounds/pellet.mp3" type="audio/mpeg">
+
+    <audio id="pelletSound" preload="metadata">
+      <source src="sounds/pellet.mp3" type="audio/mpeg" />
+      Your browser does not support the audio element.
     </audio>
-    
-    <audio id="powerUpSound">
-        <source src="sounds/powerup.mp3" type="audio/mpeg">
+
+    <audio id="powerUpSound" preload="metadata">
+      <source src="sounds/powerup.mp3" type="audio/mpeg" />
+      Your browser does not support the audio element.
     </audio>
-    
-    <audio id="gameOverSound">
-        <source src="sounds/gameover.mp3" type="audio/mpeg">
+
+    <audio id="gameOverSound" preload="metadata">
+      <source src="sounds/gameover.mp3" type="audio/mpeg" />
+      Your browser does not support the audio element.
     </audio>
 
     <!-- Scripts -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="js/js/game.js"></script>
-</body>
+    <script
+      src="https://cdn.socket.io/4.8.1/socket.io.min.js"
+      integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+"
+      crossorigin="anonymous"
+    ></script>
+    <script type="module" src="js/js/game.js"></script>
+  </body>
 </html>
-
