@@ -1,0 +1,19 @@
+# Render Blueprint — deploys the whole game as one persistent Node web service
+# (serves the built client + Socket.IO from the same origin). Create via
+# Render dashboard: New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: pacman-multiplayer
+    runtime: node
+    plan: free
+    # --include=dev is required: NODE_ENV=production would otherwise make
+    # `npm ci` skip typescript/vite, which the build needs.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.19.0

@@ -123,6 +123,47 @@ pacman-multiplayer/
   development (never `*` with credentials).
 - Room names are rendered with `textContent` (no HTML injection).
 
+## 🚀 Deployment
+
+This is a **stateful realtime WebSocket app**, so it needs a host that runs a
+**persistent Node process** (Render, Railway, Fly.io, a VPS…). It will **not** work
+on serverless platforms like Vercel, which can't hold long-lived WebSocket
+connections or shared in-memory state. One service serves both the client and
+Socket.IO from the same origin.
+
+### Render (Blueprint)
+
+The repo includes [`render.yaml`](./render.yaml). In the Render dashboard:
+**New → Blueprint → pick this repo**. It builds and starts automatically.
+
+Equivalent manual settings (New → Web Service):
+
+| Setting           | Value                                   |
+| ----------------- | --------------------------------------- |
+| Runtime           | Node                                    |
+| Build command     | `npm ci --include=dev && npm run build` |
+| Start command     | `npm start`                             |
+| Health check path | `/health`                               |
+| Env var           | `NODE_ENV=production`                   |
+
+`--include=dev` is required so the build gets `typescript`/`vite`. Render injects
+`PORT` (the server reads it); no other config is needed since the client connects
+same-origin.
+
+> **Free tier note:** free Render web services sleep after ~15 min idle and cold-start
+> on the next request (~30–60s). A paid instance (~$7/mo) stays warm.
+
+### Docker (Fly.io / VPS / any container host)
+
+```bash
+docker build -t pacman-multiplayer .
+docker run -p 3000:3000 pacman-multiplayer
+# open http://localhost:3000
+```
+
+The [`Dockerfile`](./Dockerfile) is multi-stage (build with dev deps → slim runtime
+with production deps only). Override the port with `-e PORT=8080 -p 8080:8080`.
+
 ## 🌐 Browser support
 
 Modern browsers with ES2023, WebSocket, and HTML5 Canvas support.
