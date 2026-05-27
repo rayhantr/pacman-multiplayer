@@ -1,11 +1,12 @@
 {
+  /*
+   * Base configuration shared by the server and client tsconfigs.
+   * It emits nothing on its own; `tsconfig.server.json` and
+   * `tsconfig.client.json` extend it and set their own module/lib/emit options.
+   */
   "compilerOptions": {
     /* Language and Environment */
     "target": "ES2023",
-    "lib": ["ES2023"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
 
@@ -24,36 +25,17 @@
     "exactOptionalPropertyTypes": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": false,
     "noImplicitOverride": true,
-    "noPropertyAccessFromIndexSignature": false,
-
-    /* Modules */
-    "allowUmdGlobalAccess": false,
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-
-    /* Emit */
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "removeComments": false,
-    "downlevelIteration": true,
-    "importHelpers": true,
 
     /* Interop Constraints */
-    "allowJs": false,
-    "checkJs": false,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
 
     /* Completeness */
-    "skipLibCheck": true
-  },
-  "include": ["src/server/**/*", "src/shared/**/*", "src/**/*.test.ts", "src/**/*.spec.ts"],
-  "exclude": ["node_modules", "dist", "src/client"],
-  "ts-node": {
-    "esm": true
+    "skipLibCheck": true,
+
+    /* Base emits nothing; child configs opt in */
+    "noEmit": true
   }
 }

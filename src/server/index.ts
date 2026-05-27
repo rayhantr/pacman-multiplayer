@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
+import helmet from 'helmet';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RoomManager } from './roomManager.js';
@@ -15,6 +16,14 @@ import type {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const isProduction = process.env['NODE_ENV'] === 'production';
+// In production the client is served same-origin from this server, so CORS is
+// locked down (origin: false). In development the client is served by the Vite
+// dev server, so we allow exactly that origin (never '*' together with
+// credentials, which browsers reject).
+const CLIENT_ORIGIN = process.env['CLIENT_ORIGIN'] ?? 'http://localhost:5173';
+const corsOrigin: string | boolean = isProduction ? false : CLIENT_ORIGIN;
+
 const app = express();
 const server = createServer(app);
 
@@ -26,7 +35,7 @@ const io = new SocketIOServer<
   SocketData
 >(server, {
   cors: {
-    origin: process.env['NODE_ENV'] === 'production' ? false : '*',
+    origin: corsOrigin,
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -36,26 +45,33 @@ const io = new SocketIOServer<
 const PORT = parseInt(process.env['PORT'] ?? '3000', 10);
 const HOST = process.env['HOST'] ?? '0.0.0.0';
 
-// Middleware
+// Security headers (helmet) with a CSP tuned for this app: same-origin assets,
+// Google Fonts, the Socket.IO WebSocket, and audio playback.
 app.use(
-  cors({
-    origin: process.env['NODE_ENV'] === 'production' ? false : '*',
-    credentials: true,
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'", 'ws:', 'wss:'],
+        mediaSrc: ["'self'"],
+      },
+    },
   })
 );
+
+// Middleware
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Security headers
-app.use((_req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  next();
-});
-
-// Serve static files
-app.use(express.static(join(__dirname, '../../public')));
+// Serve the built client (Vite output). Relative to the compiled server at
+// dist/server, the client bundle lives at dist/client.
+const clientDir = join(__dirname, '../client');
+app.use(express.static(clientDir));
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
@@ -68,7 +84,7 @@ app.get('/health', (_req, res) => {
 
 // Serve the main HTML file
 app.get('/', (_req, res) => {
-  res.sendFile(join(__dirname, '../../public/index.html'));
+  res.sendFile(join(clientDir, 'index.html'));
 });
 
 // Initialize room manager
@@ -86,7 +102,7 @@ io.on('connection', socket => {
         return;
       }
 
-      const roomCode = data.roomCode || 'default'; // Default room if no code provided
+      const roomCode = data.roomCode ?? 'default'; // Default room if no code provided
       roomManager.joinRoomByCode(socket, data.name.trim(), roomCode);
     } catch (error) {
       console.error('Error handling player join:', error);

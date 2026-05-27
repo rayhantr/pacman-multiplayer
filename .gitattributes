@@ -1,0 +1,10 @@
+# Normalize line endings to LF in the repo and working tree (matches Prettier's
+# endOfLine: "lf" and avoids CRLF churn on Windows checkouts).
+* text=auto eol=lf
+
+# Binary assets must never be line-ending normalized.
+*.png binary
+*.jpg binary
+*.ico binary
+*.mp3 binary
+*.wav binary

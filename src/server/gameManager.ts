@@ -3,7 +3,9 @@ import type {
   Player,
   GameState,
   ClientGameState,
+  ClientPlayer,
   PowerUp,
+  PowerUpType,
   Position,
   Direction,
   ServerToClientEvents,
@@ -12,21 +14,52 @@ import type {
   SocketData,
 } from './types.js';
 
+type TypedServer = SocketIOServer<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+>;
+
+const MAX_PLAYERS = 5;
+const GHOST_COLORS = ['red', 'pink', 'cyan', 'orange'] as const;
+
+// Movement is discrete (one cell per accepted input). A per-player cooldown
+// throttles moves and is the mechanism that makes the speed-boost power-up
+// meaningful (and incidentally rate-limits move spam).
+const BASE_MOVE_COOLDOWN_MS = 130;
+const BOOSTED_MOVE_COOLDOWN_MS = 65;
+
+const POWER_UP_SPAWN_INTERVAL_MS = 30_000;
+const POWER_UP_DURATION_MS: Record<PowerUpType, number> = {
+  speed_boost: 10_000,
+  invincibility: 5_000,
+  pellet_multiplier: 10_000,
+};
+
+const PELLET_POINTS = 10;
+const GHOST_EATEN_POINTS = 200;
+
 export class GameManager {
-  private readonly io: SocketIOServer<
-    ClientToServerEvents,
-    ServerToClientEvents,
-    InterServerEvents,
-    SocketData
-  >;
+  private readonly io: TypedServer;
   private readonly players = new Map<string, Player>();
   private gameState: GameState;
   private powerUpTimer: NodeJS.Timeout | null = null;
   private readonly roomId: string;
+  private readonly notifyRoomsChanged: (() => void) | undefined;
+  // Injectable RNG (defaults to Math.random) so power-up spawning is deterministic in tests.
+  private readonly random: () => number;
 
-  constructor(io: SocketIOServer, roomId: string = 'game') {
-    this.io = io;
+  constructor(
+    io: SocketIOServer,
+    roomId: string = 'game',
+    notifyRoomsChanged?: () => void,
+    random: () => number = Math.random
+  ) {
+    this.io = io as TypedServer;
     this.roomId = roomId;
+    this.notifyRoomsChanged = notifyRoomsChanged;
+    this.random = random;
     this.gameState = this.initializeGameState();
   }
 
@@ -55,13 +88,12 @@ export class GameManager {
     for (let y = 0; y < height; y++) {
       maze[y] = [];
       for (let x = 0; x < width; x++) {
-        // Create walls around the border and some internal walls
         if (x === 0 || x === width - 1 || y === 0 || y === height - 1) {
-          maze[y][x] = 1; // Wall
+          maze[y]![x] = 1; // Border wall
         } else if ((x % 4 === 0 && y % 4 === 0) || (x % 6 === 0 && y % 3 === 0)) {
-          maze[y][x] = 1; // Internal walls
+          maze[y]![x] = 1; // Internal wall
         } else {
-          maze[y][x] = 0; // Path
+          maze[y]![x] = 0; // Path
         }
       }
     }
@@ -70,7 +102,7 @@ export class GameManager {
     for (let y = 1; y <= 3; y++) {
       for (let x = 1; x <= 3; x++) {
         if (maze[y]) {
-          maze[y][x] = 0;
+          maze[y]![x] = 0;
         }
       }
     }
@@ -83,11 +115,11 @@ export class GameManager {
 
     for (let y = 0; y < maze.length; y++) {
       const row = maze[y];
-      if (!row) continue;
-
+      if (!row) {
+        continue;
+      }
       for (let x = 0; x < row.length; x++) {
         if (row[x] === 0) {
-          // Path
           pellets.add(`${x},${y}`);
         }
       }
@@ -97,13 +129,12 @@ export class GameManager {
   }
 
   public handlePlayerJoin(socket: Socket, name: string): void {
-    // Check if player has already joined
     if (this.players.has(socket.id)) {
       console.log(`Player ${socket.id} attempted to join again, ignoring duplicate request`);
       return;
     }
 
-    if (this.players.size >= 5) {
+    if (this.players.size >= MAX_PLAYERS) {
       socket.emit('join_failed', { reason: 'Game is full' });
       return;
     }
@@ -113,46 +144,45 @@ export class GameManager {
       return;
     }
 
-    const role = this.players.size === 0 ? 'pacman' : 'ghost';
-    const ghostColors = ['red', 'pink', 'cyan', 'orange'] as const;
-    const ghostColor = role === 'ghost' ? (ghostColors[this.players.size - 1] ?? null) : null;
+    const isPacman = this.players.size === 0;
+    const role = isPacman ? 'pacman' : 'ghost';
+    const spawnSlot = isPacman ? null : this.players.size - 1;
+    const ghostColor = isPacman ? null : (GHOST_COLORS[spawnSlot!] ?? null);
 
     const player: Player = {
       id: socket.id,
       name,
       role,
       ghostColor,
-      position: this.getSpawnPosition(role),
+      spawnSlot,
+      position: this.getSpawnPosition(role, spawnSlot),
       direction: 'right',
-      speed: role === 'pacman' ? 2 : 1.8,
+      speed: isPacman ? 2 : 1.8,
       powerUps: {
         speedBoost: null,
         invincibility: null,
         pelletMultiplier: null,
       },
+      lastMoveAt: 0,
       isAlive: true,
     };
 
     this.players.set(socket.id, player);
-    socket.join(this.roomId);
-
-    // Send success response to the joining player
-    const clientGameState = this.getClientGameState();
-    console.log('Sending join_success with game state:', JSON.stringify(clientGameState, null, 2));
+    void socket.join(this.roomId);
 
     socket.emit('join_success', {
       player_id: socket.id,
       role: player.role,
-      game_state: clientGameState,
+      game_state: this.getClientGameState(),
     });
 
-    // Notify all players about the new player
     this.io.to(this.roomId).emit('player_joined', {
       player: this.getPlayerForClient(player),
       can_start: this.canStartGame(),
     });
 
     console.log(`Player ${name} joined as ${role} (${socket.id})`);
+    this.notifyRoomsChanged?.();
   }
 
   public handlePlayerMove(playerId: string, direction: Direction): void {
@@ -161,58 +191,79 @@ export class GameManager {
       return;
     }
 
+    // Drop any effects that have timed out before evaluating this move.
+    this.expireEffects();
+
+    const now = Date.now();
+    if (now - player.lastMoveAt < this.moveCooldownFor(player)) {
+      return; // Throttled by the move cooldown.
+    }
+
     const newPosition = this.calculateNewPosition(player.position, direction);
+    if (!this.isValidMove(newPosition)) {
+      return;
+    }
 
-    if (this.isValidMove(newPosition)) {
-      player.position = newPosition;
-      player.direction = direction;
+    player.position = newPosition;
+    player.direction = direction;
+    player.lastMoveAt = now;
 
-      // Check for pellet collection (Pac-Man only)
-      let pelletCollected = false;
-      if (player.role === 'pacman') {
-        const posKey = `${newPosition.x},${newPosition.y}`;
-        if (this.gameState.pellets.has(posKey)) {
-          this.gameState.pellets.delete(posKey);
-          this.gameState.pelletsRemaining--;
-          pelletCollected = true;
+    let pelletCollected = false;
+    if (player.role === 'pacman') {
+      const posKey = `${newPosition.x},${newPosition.y}`;
 
-          const multiplier = player.powerUps.pelletMultiplier ? 2 : 1;
-          this.gameState.score += 10 * multiplier;
+      if (this.gameState.pellets.has(posKey)) {
+        this.gameState.pellets.delete(posKey);
+        this.gameState.pelletsRemaining--;
+        pelletCollected = true;
 
-          // Broadcast pellet collection
-          this.io.to(this.roomId).emit('pellet_collected', {
-            position: posKey,
-            score: this.gameState.score,
-            pellets_remaining: this.gameState.pelletsRemaining,
-          });
+        const multiplier = player.powerUps.pelletMultiplier ? 2 : 1;
+        this.gameState.score += PELLET_POINTS * multiplier;
 
-          // Check win condition
-          if (this.gameState.pelletsRemaining === 0) {
-            this.endGame('pacman');
-            return;
-          }
+        this.io.to(this.roomId).emit('pellet_collected', {
+          position: posKey,
+          score: this.gameState.score,
+          pellets_remaining: this.gameState.pelletsRemaining,
+        });
+
+        if (this.gameState.pelletsRemaining === 0) {
+          this.endGame('pacman');
+          return;
         }
       }
 
-      // Check for collisions
-      this.checkCollisions();
-
-      // Broadcast player movement
-      this.io.to(this.roomId).emit('player_moved', {
-        player_id: playerId,
-        x: player.position.x,
-        y: player.position.y,
-        direction: player.direction,
-        score: this.gameState.score,
-        pellets_remaining: this.gameState.pelletsRemaining,
-        pellet_collected: pelletCollected,
-      });
+      // Power-up pickup (Pac-Man only).
+      const powerUp = this.gameState.powerUps.get(posKey);
+      if (powerUp) {
+        this.gameState.powerUps.delete(posKey);
+        this.applyPowerUp(player, powerUp.type);
+        this.io.to(this.roomId).emit('power_up_collected', {
+          player_id: playerId,
+          type: powerUp.type,
+          position: posKey,
+        });
+      }
     }
+
+    this.checkCollisions();
+    if (this.gameState.isGameOver) {
+      return;
+    }
+
+    this.io.to(this.roomId).emit('player_moved', {
+      player_id: playerId,
+      x: player.position.x,
+      y: player.position.y,
+      direction: player.direction,
+      score: this.gameState.score,
+      pellets_remaining: this.gameState.pelletsRemaining,
+      pellet_collected: pelletCollected,
+    });
   }
 
   public handleStartGame(playerId: string): void {
     const player = this.players.get(playerId);
-    if (!player || player.role !== 'pacman' || !this.canStartGame()) {
+    if (player?.role !== 'pacman' || !this.canStartGame()) {
       return;
     }
 
@@ -221,108 +272,83 @@ export class GameManager {
     this.gameState.pelletsRemaining = this.gameState.pellets.size;
 
     this.io.to(this.roomId).emit('game_started');
-
-    // Start power-up spawning
     this.startPowerUpTimer();
 
     console.log('🎮 Game started!');
+    this.notifyRoomsChanged?.();
   }
 
   public handlePlayerDisconnect(playerId: string): void {
+    this.removePlayer(playerId, true);
+  }
+
+  public handleLeaveGame(playerId: string): void {
+    this.removePlayer(playerId, false);
+  }
+
+  /** Single code path for both explicit leave and disconnect. */
+  private removePlayer(playerId: string, dueToDisconnect: boolean): void {
     const player = this.players.get(playerId);
     if (!player) {
       return;
     }
 
     this.players.delete(playerId);
+    this.io.to(this.roomId).emit('player_left', { player_id: playerId });
 
-    this.io.to(this.roomId).emit('player_left', {
-      player_id: playerId,
-    });
+    console.log(
+      dueToDisconnect
+        ? `👋 Player ${player.name} disconnected`
+        : `🚪 Player ${player.name} left the game`
+    );
 
-    // If Pac-Man leaves, end the game
-    if (player.role === 'pacman' && this.gameState.isStarted) {
+    // If Pac-Man leaves mid-game, the ghosts win.
+    if (player.role === 'pacman' && this.gameState.isStarted && !this.gameState.isGameOver) {
       this.endGame('ghosts');
     }
 
-    console.log(`👋 Player ${player.name} disconnected`);
+    // If the room emptied, reset it so the next players get a fresh board.
+    if (this.players.size === 0) {
+      this.clearPowerUpTimer();
+      this.gameState = this.initializeGameState();
+      console.log('🔄 No players left, game reset');
+    }
+
+    this.notifyRoomsChanged?.();
   }
 
   public handleRestartGame(playerId: string): void {
     const player = this.players.get(playerId);
-    if (!player || player.role !== 'pacman') {
-      return; // Only Pac-Man can restart the game
+    if (player?.role !== 'pacman') {
+      return; // Only Pac-Man can restart the game.
     }
 
     console.log('🔄 Restarting game...');
 
-    // Reset game state
+    this.clearPowerUpTimer();
     this.gameState = this.initializeGameState();
 
-    // Reset all players to starting positions
     this.players.forEach(p => {
-      p.position = this.getSpawnPosition(p.role);
+      p.position = this.getSpawnPosition(p.role, p.spawnSlot);
       p.direction = 'right';
-      p.powerUps = {
-        speedBoost: null,
-        invincibility: null,
-        pelletMultiplier: null,
-      };
+      p.powerUps = { speedBoost: null, invincibility: null, pelletMultiplier: null };
+      p.lastMoveAt = 0;
       p.isAlive = true;
     });
 
-    // Clear any existing timers
-    if (this.powerUpTimer) {
-      clearInterval(this.powerUpTimer);
-      this.powerUpTimer = null;
-    }
-
-    // Broadcast restart to all players
     this.io.to(this.roomId).emit('game_restarted', {
       game_state: this.getClientGameState(),
     });
 
     console.log('✅ Game restarted successfully');
+    this.notifyRoomsChanged?.();
   }
 
-  public handleLeaveGame(playerId: string): void {
-    const player = this.players.get(playerId);
-    if (!player) {
-      return;
-    }
-
-    console.log(`🚪 Player ${player.name} left the game`);
-
-    // Remove player from game
-    this.players.delete(playerId);
-
-    // Broadcast player leaving
-    this.io.to(this.roomId).emit('player_left', {
-      player_id: playerId,
-    });
-
-    // If Pac-Man leaves and game is active, end the game
-    if (player.role === 'pacman' && this.gameState.isStarted && !this.gameState.isGameOver) {
-      this.endGame('ghosts');
-    }
-
-    // If no players left, reset the game
-    if (this.players.size === 0) {
-      this.gameState = this.initializeGameState();
-      if (this.powerUpTimer) {
-        clearInterval(this.powerUpTimer);
-        this.powerUpTimer = null;
-      }
-      console.log('🔄 No players left, game reset');
-    }
-  }
-
-  private getSpawnPosition(role: string): Position {
+  private getSpawnPosition(role: 'pacman' | 'ghost', spawnSlot: number | null): Position {
     if (role === 'pacman') {
       return { x: 1, y: 1 };
     }
 
-    // Ghost spawn positions
     const ghostSpawns: readonly Position[] = [
       { x: 18, y: 1 },
       { x: 1, y: 17 },
@@ -330,8 +356,7 @@ export class GameManager {
       { x: 9, y: 9 },
     ] as const;
 
-    const ghostIndex = this.players.size - 1;
-    return ghostSpawns[ghostIndex] ?? { x: 9, y: 9 };
+    return ghostSpawns[spawnSlot ?? 0] ?? { x: 9, y: 9 };
   }
 
   private calculateNewPosition(position: Position, direction: Direction): Position {
@@ -350,10 +375,10 @@ export class GameManager {
       case 'right':
         newPos.x += 1;
         break;
-      default:
-        // Exhaustive check to ensure all directions are handled
+      default: {
         const _exhaustiveCheck: never = direction;
         return _exhaustiveCheck;
+      }
     }
 
     return newPos;
@@ -370,25 +395,79 @@ export class GameManager {
     return maze[y]?.[x] === 0; // 0 = path, 1 = wall
   }
 
+  private moveCooldownFor(player: Player): number {
+    return player.powerUps.speedBoost ? BOOSTED_MOVE_COOLDOWN_MS : BASE_MOVE_COOLDOWN_MS;
+  }
+
+  private applyPowerUp(player: Player, type: PowerUpType): void {
+    const endTime = Date.now() + POWER_UP_DURATION_MS[type];
+    switch (type) {
+      case 'speed_boost':
+        player.powerUps.speedBoost = { type, endTime };
+        break;
+      case 'invincibility':
+        player.powerUps.invincibility = { type, endTime };
+        break;
+      case 'pellet_multiplier':
+        player.powerUps.pelletMultiplier = { type, endTime };
+        break;
+      default: {
+        const _exhaustiveCheck: never = type;
+        return _exhaustiveCheck;
+      }
+    }
+  }
+
+  /** Clear any timed effects that have elapsed, notifying clients. */
+  private expireEffects(): void {
+    const now = Date.now();
+    const keys = ['speedBoost', 'invincibility', 'pelletMultiplier'] as const;
+
+    for (const player of this.players.values()) {
+      for (const key of keys) {
+        const effect = player.powerUps[key];
+        if (effect && effect.endTime <= now) {
+          player.powerUps[key] = null;
+          this.io.to(this.roomId).emit('power_up_expired', {
+            player_id: player.id,
+            type: effect.type,
+          });
+        }
+      }
+    }
+  }
+
   private checkCollisions(): void {
-    const pacman = Array.from(this.players.values()).find(p => p.role === 'pacman');
+    const players = Array.from(this.players.values());
+    const pacman = players.find(p => p.role === 'pacman');
     if (!pacman) {
       return;
     }
 
-    const ghosts = Array.from(this.players.values()).filter(p => p.role === 'ghost');
+    const ghosts = players.filter(p => p.role === 'ghost');
 
     for (const ghost of ghosts) {
-      if (this.arePositionsEqual(pacman.position, ghost.position)) {
-        if (pacman.powerUps.invincibility) {
-          // Pac-Man is invincible, ghost is "eaten" (respawn)
-          ghost.position = this.getSpawnPosition('ghost');
-          this.gameState.score += 200;
-        } else {
-          // Pac-Man is caught
-          this.endGame('ghosts');
-          return;
-        }
+      if (!this.arePositionsEqual(pacman.position, ghost.position)) {
+        continue;
+      }
+
+      if (pacman.powerUps.invincibility) {
+        // Pac-Man is invincible: the ghost is eaten and respawns at its own slot.
+        ghost.position = this.getSpawnPosition('ghost', ghost.spawnSlot);
+        this.gameState.score += GHOST_EATEN_POINTS;
+
+        this.io.to(this.roomId).emit('player_moved', {
+          player_id: ghost.id,
+          x: ghost.position.x,
+          y: ghost.position.y,
+          direction: ghost.direction,
+          score: this.gameState.score,
+          pellets_remaining: this.gameState.pelletsRemaining,
+          pellet_collected: false,
+        });
+      } else {
+        this.endGame('ghosts');
+        return;
       }
     }
   }
@@ -398,28 +477,36 @@ export class GameManager {
   }
 
   private startPowerUpTimer(): void {
+    this.clearPowerUpTimer();
     this.powerUpTimer = setInterval(() => {
       this.spawnPowerUp();
-    }, 30000); // Every 30 seconds
+    }, POWER_UP_SPAWN_INTERVAL_MS);
+  }
+
+  private clearPowerUpTimer(): void {
+    if (this.powerUpTimer) {
+      clearInterval(this.powerUpTimer);
+      this.powerUpTimer = null;
+    }
   }
 
   private spawnPowerUp(): void {
-    const powerUpTypes: readonly PowerUp['type'][] = [
+    const powerUpTypes: readonly PowerUpType[] = [
       'speed_boost',
       'invincibility',
       'pellet_multiplier',
-    ] as const;
+    ];
 
-    const type = powerUpTypes[Math.floor(Math.random() * powerUpTypes.length)]!;
+    const type = powerUpTypes[Math.floor(this.random() * powerUpTypes.length)]!;
 
-    // Find random empty position
     const emptyPositions: Position[] = [];
     const maze = this.gameState.maze;
 
     for (let y = 0; y < maze.length; y++) {
       const row = maze[y];
-      if (!row) continue;
-
+      if (!row) {
+        continue;
+      }
       for (let x = 0; x < row.length; x++) {
         if (row[x] === 0) {
           emptyPositions.push({ x, y });
@@ -427,33 +514,23 @@ export class GameManager {
       }
     }
 
-    if (emptyPositions.length > 0) {
-      const position = emptyPositions[Math.floor(Math.random() * emptyPositions.length)]!;
-      const posKey = `${position.x},${position.y}`;
-
-      const powerUp: PowerUp = {
-        type,
-        position,
-        spawnTime: Date.now(),
-      };
-
-      this.gameState.powerUps.set(posKey, powerUp);
-
-      this.io.to(this.roomId).emit('power_up_spawned', {
-        type,
-        position: posKey,
-      });
+    if (emptyPositions.length === 0) {
+      return;
     }
+
+    const position = emptyPositions[Math.floor(this.random() * emptyPositions.length)]!;
+    const posKey = `${position.x},${position.y}`;
+
+    const powerUp: PowerUp = { type, position, spawnTime: Date.now() };
+    this.gameState.powerUps.set(posKey, powerUp);
+
+    this.io.to(this.roomId).emit('power_up_spawned', { type, position: posKey });
   }
 
   private endGame(winner: 'pacman' | 'ghosts'): void {
     this.gameState.isGameOver = true;
     this.gameState.winner = winner;
-
-    if (this.powerUpTimer) {
-      clearInterval(this.powerUpTimer);
-      this.powerUpTimer = null;
-    }
+    this.clearPowerUpTimer();
 
     this.io.to(this.roomId).emit('game_over', {
       winner,
@@ -461,13 +538,14 @@ export class GameManager {
     });
 
     console.log(`🏁 Game ended! Winner: ${winner}`);
+    this.notifyRoomsChanged?.();
   }
 
   private canStartGame(): boolean {
     return this.players.size >= 2 && !this.gameState.isStarted;
   }
 
-  private getPlayerForClient(player: Player) {
+  private getPlayerForClient(player: Player): ClientPlayer {
     return {
       id: player.id,
       name: player.name,
@@ -476,7 +554,7 @@ export class GameManager {
       x: player.position.x,
       y: player.position.y,
       direction: player.direction,
-    } as const;
+    };
   }
 
   private getClientGameState(): ClientGameState {
@@ -491,7 +569,7 @@ export class GameManager {
     };
   }
 
-  // Public methods for RoomManager
+  // Public accessors for RoomManager
   public getPlayerCount(): number {
     return this.players.size;
   }

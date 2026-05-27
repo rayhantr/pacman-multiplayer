@@ -9,12 +9,12 @@
     />
     <meta name="keywords" content="pacman, multiplayer, game, typescript, socket.io" />
     <title>Multiplayer Pac-Man</title>
-    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="/css/styles.css" />
     <link
       href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
       rel="stylesheet"
     />
-    <link rel="icon" type="image/x-icon" href="images/pacman-right.png" />
+    <link rel="icon" type="image/x-icon" href="/images/pacman-right.png" />
   </head>
   <body>
     <div class="container">
@@ -53,6 +53,13 @@
               <button id="createRoomButton" class="btn btn-success" type="button">
                 CREATE NEW ROOM
               </button>
+            </div>
+
+            <div class="rooms-list-container">
+              <h3>AVAILABLE ROOMS</h3>
+              <div id="roomsList" role="list">
+                <div class="loading">Loading rooms…</div>
+              </div>
             </div>
 
             <div class="room-info">
@@ -162,7 +169,7 @@
                 </div>
                 <div class="power-up-item">
                   <span class="power-up-icon multiplier" aria-label="Score multiplier">●</span>
-                  <span>Pellet Multiplier (doubles score)</span>
+                  <span>Pellet Multiplier (doubles score, 10 seconds)</span>
                 </div>
               </div>
             </div>
@@ -190,31 +197,26 @@
 
     <!-- Audio Elements -->
     <audio id="backgroundMusic" loop preload="metadata">
-      <source src="sounds/background.mp3" type="audio/mpeg" />
+      <source src="/sounds/background.mp3" type="audio/mpeg" />
       Your browser does not support the audio element.
     </audio>
 
     <audio id="pelletSound" preload="metadata">
-      <source src="sounds/pellet.mp3" type="audio/mpeg" />
+      <source src="/sounds/pellet.mp3" type="audio/mpeg" />
       Your browser does not support the audio element.
     </audio>
 
     <audio id="powerUpSound" preload="metadata">
-      <source src="sounds/powerup.mp3" type="audio/mpeg" />
+      <source src="/sounds/powerup.mp3" type="audio/mpeg" />
       Your browser does not support the audio element.
     </audio>
 
     <audio id="gameOverSound" preload="metadata">
-      <source src="sounds/gameover.mp3" type="audio/mpeg" />
+      <source src="/sounds/gameover.mp3" type="audio/mpeg" />
       Your browser does not support the audio element.
     </audio>
 
-    <!-- Scripts -->
-    <script
-      src="https://cdn.socket.io/4.8.1/socket.io.min.js"
-      integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+"
-      crossorigin="anonymous"
-    ></script>
-    <script type="module" src="js/js/game.js"></script>
+    <!-- Client entry (bundled by Vite; Socket.IO is imported as a module) -->
+    <script type="module" src="/main.ts"></script>
   </body>
 </html>

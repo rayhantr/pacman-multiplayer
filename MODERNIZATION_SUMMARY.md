@@ -1,5 +1,12 @@
 # 🚀 Pacman TypeScript Project - Modernization Assessment
 
+> **Historical note (2026-05-27):** This assessment is out of date. The versions
+> cited below (TypeScript 5.7, ESLint 9, Socket.IO via CDN, etc.) have since been
+> superseded, and several features it described as complete (power-ups, the lobby
+> room list) were actually broken and have now been fixed. The client is now
+> bundled with Vite and shares its types with the server. See **README.md** for
+> the current state.
+
 ## 📊 Overall Status: **EXCEPTIONALLY MODERNIZED** ✨
 
 Your Pacman TypeScript project is already using the latest 2024/2025 technologies and best practices. This is one of the most well-modernized TypeScript projects I've encountered!

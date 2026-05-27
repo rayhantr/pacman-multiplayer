@@ -1,34 +1,12 @@
 {
+  /* Client type-checking configuration. Vite/esbuild does the transpiling,
+   * so tsc only type-checks here (noEmit inherited from the base). */
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    /* Language and Environment */
-    "target": "ES2023",
-    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-
-    /* Emit */
-    "outDir": "./public/js",
-    "rootDir": "./src/client",
-    "declaration": false,
-    "declarationMap": false,
-
-    /* Modules */
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-
-    /* Type Checking - Slightly relaxed for client code */
-    "noImplicitAny": false,
-    "strictPropertyInitialization": false,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"]
   },
-  "include": ["src/client/**/*"],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "src/server",
-    "**/*.test.ts",
-    "**/*.spec.ts"
-  ]
+  "include": ["src/client/**/*", "src/shared/**/*"]
 }

@@ -1,5 +1,12 @@
 # Project Modernization Complete ✅
 
+> **Historical note (2026-05-27):** This document describes an earlier
+> modernization pass and its version numbers are now out of date. The project
+> was subsequently overhauled (dependencies bumped to latest incl. TypeScript 6 /
+> ESLint 10 / Vitest 4, the client moved to a Vite bundle with shared types, and
+> previously non-functional power-ups and the lobby room list were fixed). See
+> **README.md** for the current, accurate state.
+
 ## 🚀 Summary
 
 This Pacman TypeScript project has been fully modernized to 2024/2025 standards.

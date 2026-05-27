@@ -1,2 +1,26 @@
-/dist
+# Dependencies
 /node_modules
+
+# Build output
+/dist
+/public/js
+
+# Test / coverage output
+/coverage
+
+# Compiled config artifacts (configs are authored in .ts and built on demand)
+/*.config.js
+/*.config.d.ts
+/*.config.js.map
+/*.config.d.ts.map
+
+# Logs and env
+*.log
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/

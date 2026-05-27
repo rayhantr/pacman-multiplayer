@@ -1,0 +1,19 @@
+{
+  /* Server build configuration. Emits Node ESM to ./dist. */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "types": ["node"],
+
+    /* Emit */
+    "noEmit": false,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src/server/**/*", "src/shared/**/*"]
+}
