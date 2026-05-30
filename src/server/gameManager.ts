@@ -8,6 +8,8 @@ import type {
   PowerUpType,
   Position,
   Direction,
+  GhostColor,
+  PacmanColor,
   ServerToClientEvents,
   ClientToServerEvents,
   InterServerEvents,
@@ -23,6 +25,7 @@ type TypedServer = SocketIOServer<
 
 const MAX_PLAYERS = 5;
 const GHOST_COLORS = ['red', 'pink', 'cyan', 'orange'] as const;
+const PACMAN_COLORS = ['amber', 'lime', 'sky', 'rose', 'violet'] as const;
 
 // Movement is discrete (one cell per accepted input). A per-player cooldown
 // throttles moves and is the mechanism that makes the speed-boost power-up
@@ -31,6 +34,10 @@ const BASE_MOVE_COOLDOWN_MS = 130;
 const BOOSTED_MOVE_COOLDOWN_MS = 65;
 
 const POWER_UP_SPAWN_INTERVAL_MS = 30_000;
+// How long an uncollected boost stays on the board before it vanishes.
+const POWER_UP_LIFETIME_MS = 15_000;
+// Cadence at which the power-up timer both sweeps expired boosts and spawns new ones.
+const POWER_UP_TICK_MS = 1_000;
 const POWER_UP_DURATION_MS: Record<PowerUpType, number> = {
   speed_boost: 10_000,
   invincibility: 5_000,
@@ -45,6 +52,8 @@ export class GameManager {
   private readonly players = new Map<string, Player>();
   private gameState: GameState;
   private powerUpTimer: NodeJS.Timeout | null = null;
+  // Stable game owner (first joiner): controls start/restart regardless of role.
+  private hostId: string | null = null;
   private readonly roomId: string;
   private readonly notifyRoomsChanged: (() => void) | undefined;
   // Injectable RNG (defaults to Math.random) so power-up spawning is deterministic in tests.
@@ -144,16 +153,24 @@ export class GameManager {
       return;
     }
 
+    // First player to join owns the room (controls start/restart) and defaults
+    // to Pac-Man; everyone else defaults to ghost. All roles are re-pickable in
+    // the lobby via set_role.
     const isPacman = this.players.size === 0;
-    const role = isPacman ? 'pacman' : 'ghost';
-    const spawnSlot = isPacman ? null : this.players.size - 1;
-    const ghostColor = isPacman ? null : (GHOST_COLORS[spawnSlot!] ?? null);
+    if (isPacman) {
+      this.hostId = socket.id;
+    }
+    const role: 'pacman' | 'ghost' = isPacman ? 'pacman' : 'ghost';
+    const spawnSlot = this.nextFreeSlot(role);
+    const colors = this.colorForRole(role, spawnSlot);
 
     const player: Player = {
       id: socket.id,
       name,
       role,
-      ghostColor,
+      lobbyRole: role,
+      ghostColor: colors.ghostColor,
+      pacmanColor: colors.pacmanColor,
       spawnSlot,
       position: this.getSpawnPosition(role, spawnSlot),
       direction: 'right',
@@ -173,6 +190,7 @@ export class GameManager {
     socket.emit('join_success', {
       player_id: socket.id,
       role: player.role,
+      is_host: socket.id === this.hostId,
       game_state: this.getClientGameState(),
     });
 
@@ -261,9 +279,43 @@ export class GameManager {
     });
   }
 
-  public handleStartGame(playerId: string): void {
+  /** Let a waiting player toggle their lobby role (Pac-Man <-> ghost). */
+  public handleSetRole(playerId: string, role: 'pacman' | 'ghost'): void {
     const player = this.players.get(playerId);
-    if (player?.role !== 'pacman' || !this.canStartGame()) {
+    if (!player || this.gameState.isStarted || this.gameState.isGameOver) {
+      return; // Roles are only editable in the lobby.
+    }
+    if (player.role === role) {
+      return;
+    }
+
+    const slot = this.nextFreeSlot(role);
+    const colors = this.colorForRole(role, slot);
+    player.role = role;
+    player.lobbyRole = role;
+    player.spawnSlot = slot;
+    player.ghostColor = colors.ghostColor;
+    player.pacmanColor = colors.pacmanColor;
+    player.position = this.getSpawnPosition(role, slot);
+
+    this.io.to(this.roomId).emit('player_role_changed', {
+      player_id: playerId,
+      role,
+      ghostColor: player.ghostColor ?? null,
+      pacmanColor: player.pacmanColor ?? null,
+      can_start: this.canStartGame(),
+    });
+    this.notifyRoomsChanged?.();
+  }
+
+  public handleStartGame(playerId: string): void {
+    if (playerId !== this.hostId) {
+      return; // Only the host can start.
+    }
+    if (!this.canStartGame()) {
+      this.io.to(this.roomId).emit('start_failed', {
+        reason: 'Need at least 1 Pac-Man and 1 ghost to start.',
+      });
       return;
     }
 
@@ -302,8 +354,21 @@ export class GameManager {
         : `🚪 Player ${player.name} left the game`
     );
 
-    // If Pac-Man leaves mid-game, the ghosts win.
-    if (player.role === 'pacman' && this.gameState.isStarted && !this.gameState.isGameOver) {
+    // Hand the room off to a remaining player if the host left, so the lobby
+    // can still be started and (re)broadcast the start authority.
+    if (playerId === this.hostId) {
+      const next = this.players.values().next();
+      this.hostId = next.done ? null : next.value.id;
+    }
+
+    // If the LAST Pac-Man leaves mid-game, the ghosts win. With multiple
+    // Pac-Men, one leaving while others remain does not end the game.
+    if (
+      player.role === 'pacman' &&
+      this.gameState.isStarted &&
+      !this.gameState.isGameOver &&
+      !this.hasPacman()
+    ) {
       this.endGame('ghosts');
     }
 
@@ -311,6 +376,7 @@ export class GameManager {
     if (this.players.size === 0) {
       this.clearPowerUpTimer();
       this.gameState = this.initializeGameState();
+      this.hostId = null;
       console.log('🔄 No players left, game reset');
     }
 
@@ -318,9 +384,8 @@ export class GameManager {
   }
 
   public handleRestartGame(playerId: string): void {
-    const player = this.players.get(playerId);
-    if (player?.role !== 'pacman') {
-      return; // Only Pac-Man can restart the game.
+    if (playerId !== this.hostId) {
+      return; // Only the host can restart the game.
     }
 
     console.log('🔄 Restarting game...');
@@ -328,8 +393,19 @@ export class GameManager {
     this.clearPowerUpTimer();
     this.gameState = this.initializeGameState();
 
+    // Restore each player to the role they chose in the lobby (undoing any
+    // catch-conversions from the previous round) and re-derive slot/color.
+    // Per-role counters keep slots unique regardless of iteration order.
+    let pacmanSlot = 0;
+    let ghostSlot = 0;
     this.players.forEach(p => {
-      p.position = this.getSpawnPosition(p.role, p.spawnSlot);
+      p.role = p.lobbyRole;
+      const slot = p.role === 'pacman' ? pacmanSlot++ : ghostSlot++;
+      const colors = this.colorForRole(p.role, slot);
+      p.spawnSlot = slot;
+      p.ghostColor = colors.ghostColor;
+      p.pacmanColor = colors.pacmanColor;
+      p.position = this.getSpawnPosition(p.role, slot);
       p.direction = 'right';
       p.powerUps = { speedBoost: null, invincibility: null, pelletMultiplier: null };
       p.lastMoveAt = 0;
@@ -346,7 +422,20 @@ export class GameManager {
 
   private getSpawnPosition(role: 'pacman' | 'ghost', spawnSlot: number | null): Position {
     if (role === 'pacman') {
-      return { x: 1, y: 1 };
+      // Distinct corners/edges so multiple Pac-Men don't stack. Each candidate
+      // is validated against the maze; fall back to {1,1} (guaranteed walkable
+      // by the spawn-block clear at maze generation).
+      // All verified-path cells (maze rule: wall where x%4==0&&y%4==0 or
+      // x%6==0&&y%3==0), distinct from the ghost spawn cells.
+      const pacmanSpawns: readonly Position[] = [
+        { x: 1, y: 1 },
+        { x: 1, y: 9 },
+        { x: 9, y: 1 },
+        { x: 17, y: 1 },
+        { x: 9, y: 17 },
+      ] as const;
+      const candidate = pacmanSpawns[spawnSlot ?? 0] ?? { x: 1, y: 1 };
+      return this.isValidMove(candidate) ? candidate : { x: 1, y: 1 };
     }
 
     const ghostSpawns: readonly Position[] = [
@@ -357,6 +446,40 @@ export class GameManager {
     ] as const;
 
     return ghostSpawns[spawnSlot ?? 0] ?? { x: 9, y: 9 };
+  }
+
+  /** Lowest spawn slot not currently used by a player of the given role. */
+  private nextFreeSlot(role: 'pacman' | 'ghost'): number {
+    const used = new Set<number>();
+    for (const p of this.players.values()) {
+      if (p.role === role && p.spawnSlot !== null) {
+        used.add(p.spawnSlot);
+      }
+    }
+    let slot = 0;
+    while (used.has(slot)) {
+      slot++;
+    }
+    return slot;
+  }
+
+  /** Color pair for a role+slot: one set, the other nulled. */
+  private colorForRole(
+    role: 'pacman' | 'ghost',
+    slot: number
+  ): { ghostColor: GhostColor | null; pacmanColor: PacmanColor | null } {
+    return role === 'pacman'
+      ? { pacmanColor: PACMAN_COLORS[slot] ?? null, ghostColor: null }
+      : { ghostColor: GHOST_COLORS[slot] ?? null, pacmanColor: null };
+  }
+
+  private hasPacman(): boolean {
+    for (const p of this.players.values()) {
+      if (p.role === 'pacman') {
+        return true;
+      }
+    }
+    return false;
   }
 
   private calculateNewPosition(position: Position, direction: Direction): Position {
@@ -439,37 +562,63 @@ export class GameManager {
 
   private checkCollisions(): void {
     const players = Array.from(this.players.values());
-    const pacman = players.find(p => p.role === 'pacman');
-    if (!pacman) {
+    const pacmen = players.filter(p => p.role === 'pacman');
+    if (pacmen.length === 0) {
       return;
     }
-
     const ghosts = players.filter(p => p.role === 'ghost');
 
-    for (const ghost of ghosts) {
-      if (!this.arePositionsEqual(pacman.position, ghost.position)) {
-        continue;
-      }
+    for (const pacman of pacmen) {
+      for (const ghost of ghosts) {
+        if (!this.arePositionsEqual(pacman.position, ghost.position)) {
+          continue;
+        }
 
-      if (pacman.powerUps.invincibility) {
-        // Pac-Man is invincible: the ghost is eaten and respawns at its own slot.
-        ghost.position = this.getSpawnPosition('ghost', ghost.spawnSlot);
-        this.gameState.score += GHOST_EATEN_POINTS;
+        if (pacman.powerUps.invincibility) {
+          // Pac-Man is invincible: the ghost is eaten and respawns at its slot.
+          ghost.position = this.getSpawnPosition('ghost', ghost.spawnSlot);
+          this.gameState.score += GHOST_EATEN_POINTS;
 
-        this.io.to(this.roomId).emit('player_moved', {
-          player_id: ghost.id,
-          x: ghost.position.x,
-          y: ghost.position.y,
-          direction: ghost.direction,
-          score: this.gameState.score,
-          pellets_remaining: this.gameState.pelletsRemaining,
-          pellet_collected: false,
-        });
-      } else {
-        this.endGame('ghosts');
-        return;
+          this.io.to(this.roomId).emit('player_moved', {
+            player_id: ghost.id,
+            x: ghost.position.x,
+            y: ghost.position.y,
+            direction: ghost.direction,
+            score: this.gameState.score,
+            pellets_remaining: this.gameState.pelletsRemaining,
+            pellet_collected: false,
+          });
+        } else {
+          // Caught: this Pac-Man is converted into a ghost for the rest of the
+          // round. Stop matching it (it is no longer a Pac-Man).
+          this.convertToGhost(pacman);
+          break;
+        }
       }
     }
+
+    // Ghosts win only once every Pac-Man has been converted away.
+    if (!this.hasPacman()) {
+      this.endGame('ghosts');
+    }
+  }
+
+  /** Permanently turn a caught Pac-Man into a ghost (for the rest of the round). */
+  private convertToGhost(player: Player): void {
+    const slot = this.nextFreeSlot('ghost');
+    player.role = 'ghost';
+    player.spawnSlot = slot;
+    player.ghostColor = GHOST_COLORS[slot] ?? null;
+    player.pacmanColor = null;
+    player.powerUps = { speedBoost: null, invincibility: null, pelletMultiplier: null };
+    player.position = this.getSpawnPosition('ghost', slot);
+
+    this.io.to(this.roomId).emit('player_converted', {
+      player_id: player.id,
+      ghostColor: player.ghostColor,
+      x: player.position.x,
+      y: player.position.y,
+    });
   }
 
   private arePositionsEqual(pos1: Position, pos2: Position): boolean {
@@ -478,9 +627,28 @@ export class GameManager {
 
   private startPowerUpTimer(): void {
     this.clearPowerUpTimer();
+    // One interval drives both jobs: sweep expired board boosts every tick, and
+    // spawn a fresh boost every POWER_UP_SPAWN_INTERVAL_MS.
+    let sinceSpawn = 0;
     this.powerUpTimer = setInterval(() => {
-      this.spawnPowerUp();
-    }, POWER_UP_SPAWN_INTERVAL_MS);
+      this.sweepExpiredBoardPowerUps();
+      sinceSpawn += POWER_UP_TICK_MS;
+      if (sinceSpawn >= POWER_UP_SPAWN_INTERVAL_MS) {
+        sinceSpawn = 0;
+        this.spawnPowerUp();
+      }
+    }, POWER_UP_TICK_MS);
+  }
+
+  /** Remove board boosts that have sat uncollected past their lifetime. */
+  private sweepExpiredBoardPowerUps(): void {
+    const now = Date.now();
+    for (const [posKey, powerUp] of this.gameState.powerUps) {
+      if (now - powerUp.spawnTime >= POWER_UP_LIFETIME_MS) {
+        this.gameState.powerUps.delete(posKey);
+        this.io.to(this.roomId).emit('power_up_despawned', { position: posKey });
+      }
+    }
   }
 
   private clearPowerUpTimer(): void {
@@ -542,7 +710,19 @@ export class GameManager {
   }
 
   private canStartGame(): boolean {
-    return this.players.size >= 2 && !this.gameState.isStarted;
+    if (this.gameState.isStarted) {
+      return false;
+    }
+    let pacmen = 0;
+    let ghosts = 0;
+    for (const p of this.players.values()) {
+      if (p.role === 'pacman') {
+        pacmen++;
+      } else {
+        ghosts++;
+      }
+    }
+    return pacmen >= 1 && ghosts >= 1;
   }
 
   private getPlayerForClient(player: Player): ClientPlayer {
@@ -551,6 +731,7 @@ export class GameManager {
       name: player.name,
       role: player.role,
       ghostColor: player.ghostColor,
+      pacmanColor: player.pacmanColor,
       x: player.position.x,
       y: player.position.y,
       direction: player.direction,

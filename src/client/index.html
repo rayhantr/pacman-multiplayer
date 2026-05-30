@@ -2,16 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
     <meta
       name="description"
       content="Modern Multiplayer Pac-Man game built with TypeScript and Socket.IO"
     />
     <meta name="keywords" content="pacman, multiplayer, game, typescript, socket.io" />
     <title>Multiplayer Pac-Man</title>
-    <link rel="stylesheet" href="/css/styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" type="image/x-icon" href="/images/pacman-right.png" />
@@ -19,56 +21,50 @@
   <body>
     <div class="container">
       <header>
-        <h1 class="game-title">MULTIPLAYER PAC-MAN</h1>
+        <h1 class="game-title"><span class="game-title-dot" aria-hidden="true"></span>Pac-Man</h1>
         <div class="game-info">
-          <span>SCORE: <span id="score">0</span></span>
-          <span>PELLETS: <span id="pellets">0</span></span>
-          <span>PLAYERS: <span id="playersCount">0</span></span>
-          <span id="connectionStatus" class="disconnected">Connecting...</span>
+          <span id="connectionStatus" class="status-pill disconnected">Connecting…</span>
         </div>
       </header>
 
       <main>
         <!-- Room Selection Screen -->
         <div id="roomSelection" class="screen">
-          <div class="form-container">
-            <h2>JOIN OR CREATE ROOM</h2>
-            <p>Enter a room code to join, or create your own room</p>
+          <div class="room-selection-grid">
+            <!-- Left: join / create form -->
+            <div class="form-container">
+              <h2>Join or create a room</h2>
+              <p>Enter a room code to join, or create your own room.</p>
 
-            <div class="input-group">
-              <input
-                type="text"
-                id="roomCodeInput"
-                placeholder="Enter room code"
-                maxlength="30"
-                autocomplete="off"
-              />
-            </div>
+              <div class="input-group">
+                <input
+                  type="text"
+                  id="roomCodeInput"
+                  placeholder="Enter room code"
+                  maxlength="30"
+                  autocomplete="off"
+                />
+              </div>
 
-            <div class="room-actions">
-              <button id="joinRoomButton" class="btn btn-primary" type="button">JOIN ROOM</button>
-              <button id="quickJoinButton" class="btn btn-secondary" type="button">
-                QUICK JOIN (Default Room)
-              </button>
-              <button id="createRoomButton" class="btn btn-success" type="button">
-                CREATE NEW ROOM
-              </button>
-            </div>
-
-            <div class="rooms-list-container">
-              <h3>AVAILABLE ROOMS</h3>
-              <div id="roomsList" role="list">
-                <div class="loading">Loading rooms…</div>
+              <div class="room-actions">
+                <button id="joinRoomButton" class="btn btn-primary" type="button">Join room</button>
+                <button id="quickJoinButton" class="btn btn-secondary" type="button">
+                  Quick join (default room)
+                </button>
+                <button id="createRoomButton" class="btn btn-success" type="button">
+                  Create new room
+                </button>
               </div>
             </div>
 
-            <div class="room-info">
-              <h3>HOW IT WORKS</h3>
-              <p><strong>Join Room:</strong> Enter the room code shared by the room creator</p>
-              <p><strong>Quick Join:</strong> Join the default public room</p>
-              <p>
-                <strong>Create Room:</strong> Make a new room with your custom name as the room code
-              </p>
+            <!-- Right: available rooms -->
+            <div class="form-container rooms-panel">
+              <div class="rooms-list-container">
+                <h3>Available rooms</h3>
+                <div id="roomsList" role="list">
+                  <div class="loading">Loading rooms…</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -76,8 +72,8 @@
         <!-- Create Room Form -->
         <div id="createRoomForm" class="screen" style="display: none">
           <div class="form-container">
-            <h2>CREATE ROOM</h2>
-            <p>Enter your details to create a new game room</p>
+            <h2>Create room</h2>
+            <p>Enter your details to create a new game room.</p>
             <div class="input-group">
               <input
                 type="text"
@@ -87,8 +83,6 @@
                 autocomplete="off"
                 required
               />
-            </div>
-            <div class="input-group">
               <input
                 type="text"
                 id="hostPlayerName"
@@ -100,9 +94,9 @@
             </div>
             <div class="form-actions">
               <button id="createRoomConfirmButton" class="btn btn-primary" type="button">
-                CREATE ROOM
+                Create room
               </button>
-              <button id="backToRoomsButton" class="btn btn-secondary" type="button">BACK</button>
+              <button id="backToRoomsButton" class="btn btn-secondary" type="button">Back</button>
             </div>
           </div>
         </div>
@@ -110,8 +104,8 @@
         <!-- Join Game Form -->
         <div id="joinForm" class="screen" style="display: none">
           <div class="form-container">
-            <h2>JOIN GAME</h2>
-            <p>First player becomes Pac-Man, others become ghosts (max 4 ghosts)</p>
+            <h2>Join game</h2>
+            <p>First player becomes Pac-Man, others become ghosts (max 4 ghosts).</p>
             <div class="input-group">
               <input
                 type="text"
@@ -123,9 +117,9 @@
               />
             </div>
             <div class="form-actions">
-              <button id="joinButton" class="btn btn-primary" type="button">JOIN</button>
+              <button id="joinButton" class="btn btn-primary" type="button">Join</button>
               <button id="backToRoomsFromJoinButton" class="btn btn-secondary" type="button">
-                BACK TO ROOMS
+                Back to rooms
               </button>
             </div>
           </div>
@@ -134,11 +128,11 @@
         <!-- Waiting Room -->
         <div id="waitingRoom" class="screen" style="display: none">
           <div class="waiting-container">
-            <h2>WAITING FOR PLAYERS</h2>
-            <p>Need at least 1 Pac-Man and 1 ghost to start</p>
+            <h2>Waiting for players</h2>
+            <p>Need at least 1 Pac-Man and 1 ghost to start.</p>
 
             <div class="players-list">
-              <h3>CONNECTED PLAYERS</h3>
+              <h3>Connected players</h3>
               <div id="playersList" role="list"></div>
             </div>
 
@@ -149,19 +143,22 @@
               disabled
               type="button"
             >
-              START GAME
+              Start game
             </button>
 
             <div class="instructions">
-              <h3>HOW TO PLAY</h3>
-              <p>Use <strong>ARROW KEYS</strong> to move</p>
-              <p><strong>Pac-Man:</strong> Collect all pellets to win</p>
-              <p><strong>Ghosts:</strong> Catch Pac-Man to win</p>
+              <h3>How to play</h3>
+              <p>Use the <strong>arrow keys</strong> or the on-screen pad to move.</p>
+              <p><strong>Pac-Men:</strong> collect all pellets to win.</p>
+              <p>
+                <strong>Ghosts:</strong> catch a Pac-Man to turn it into a ghost. Win once every
+                Pac-Man has been caught.
+              </p>
               <div class="power-ups">
-                <h4>POWER-UPS (spawn every 30 seconds)</h4>
+                <h4>Power-ups (spawn every 30s, vanish after 15s if uncollected)</h4>
                 <div class="power-up-item">
                   <span class="power-up-icon speed" aria-label="Speed boost">●</span>
-                  <span>Speed Boost (10 seconds)</span>
+                  <span>Speed boost (10 seconds)</span>
                 </div>
                 <div class="power-up-item">
                   <span class="power-up-icon invincibility" aria-label="Invincibility">●</span>
@@ -169,7 +166,7 @@
                 </div>
                 <div class="power-up-item">
                   <span class="power-up-icon multiplier" aria-label="Score multiplier">●</span>
-                  <span>Pellet Multiplier (doubles score, 10 seconds)</span>
+                  <span>Pellet multiplier (doubles score, 10 seconds)</span>
                 </div>
               </div>
             </div>
@@ -178,21 +175,74 @@
 
         <!-- Game Canvas -->
         <div id="gameContainer" class="screen" style="display: none">
+          <div class="game-controls">
+            <div class="controls-actions">
+              <button
+                id="muteButton"
+                class="btn btn-secondary"
+                type="button"
+                aria-label="Mute sound"
+                aria-pressed="false"
+              >
+                🔊
+              </button>
+              <button id="exitGameButton" class="btn btn-secondary" type="button">
+                Leave game
+              </button>
+            </div>
+            <div class="controls-info">
+              <p>Arrow keys or the on-screen pad to move.</p>
+              <div class="game-stats">
+                <span class="stat"><em>Score</em><span id="gameScore">0</span></span>
+                <span class="stat"><em>Pellets</em><span id="gamePellets">0</span></span>
+                <span class="stat"><em>Players</em><span id="gamePlayers">0</span></span>
+              </div>
+              <!-- Active power-up timers for the local player (populated at runtime) -->
+              <div id="powerupTimers" class="powerup-timers" aria-live="polite"></div>
+            </div>
+          </div>
+
           <div class="game-canvas-container">
             <canvas id="gameCanvas" aria-label="Game area"></canvas>
           </div>
-          <div class="game-controls">
-            <div class="controls-info">
-              <p>Use ARROW KEYS to move</p>
-              <div class="game-stats">
-                <span>Score: <span id="gameScore">0</span></span>
-                <span>Pellets: <span id="gamePellets">0</span></span>
-                <span>Players: <span id="gamePlayers">0</span></span>
-              </div>
+
+          <!-- Split, handheld-style touch controls: left/right on one side, up/down on the other -->
+          <div class="touch-controls">
+            <div class="touch-cluster touch-left">
+              <button id="dpadLeft" class="dpad-btn" type="button" aria-label="Move left">◀</button>
+              <button id="dpadRight" class="dpad-btn" type="button" aria-label="Move right">
+                ▶
+              </button>
+            </div>
+            <div class="touch-cluster touch-right">
+              <button id="dpadUp" class="dpad-btn" type="button" aria-label="Move up">▲</button>
+              <button id="dpadDown" class="dpad-btn" type="button" aria-label="Move down">▼</button>
             </div>
           </div>
         </div>
       </main>
+    </div>
+
+    <!-- Non-blocking toast notifications -->
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <!-- How-it-works help, anchored to the bottom-right corner -->
+    <div id="helpCorner" class="help-corner">
+      <div id="helpTooltip" class="help-tooltip" role="tooltip" aria-hidden="true">
+        <h3>How it works</h3>
+        <p><strong>Join room:</strong> Enter the room code shared by the room creator.</p>
+        <p><strong>Quick join:</strong> Join the default public room.</p>
+        <p><strong>Create room:</strong> Make a new room with your custom name as the room code.</p>
+      </div>
+      <button
+        id="helpButton"
+        class="help-button"
+        type="button"
+        aria-label="How it works"
+        aria-expanded="false"
+      >
+        ?
+      </button>
     </div>
 
     <!-- Audio Elements -->

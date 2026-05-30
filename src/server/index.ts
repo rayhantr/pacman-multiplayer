@@ -151,6 +151,18 @@ io.on('connection', socket => {
     }
   });
 
+  // Handle lobby role selection
+  socket.on('set_role', data => {
+    try {
+      if (data?.role !== 'pacman' && data?.role !== 'ghost') {
+        return; // Ignore invalid roles
+      }
+      roomManager.handleSetRole(socket.id, data.role);
+    } catch (error) {
+      console.error('Error setting role:', error);
+    }
+  });
+
   // Handle game start
   socket.on('start_game', () => {
     try {

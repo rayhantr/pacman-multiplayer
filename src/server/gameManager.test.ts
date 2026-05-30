@@ -107,6 +107,47 @@ describe('GameManager — lobby & roles', () => {
     gm.handlePlayerJoin(createMockSocket('p2').socket, 'Bob');
     expect(lastEvent(emits, 'player_joined').can_start).toBe(true);
   });
+
+  it('lets a player switch roles and gates start on having both roles', () => {
+    const { io, emits } = createMockIo();
+    const gm = new GameManager(io, 'room');
+    gm.handlePlayerJoin(createMockSocket('p1').socket, 'Alice'); // pacman (host)
+    gm.handlePlayerJoin(createMockSocket('p2').socket, 'Bob'); // ghost
+
+    // Both Pac-Men -> no ghost -> cannot start.
+    gm.handleSetRole('p2', 'pacman');
+    let changed = lastEvent(emits, 'player_role_changed');
+    expect(changed.role).toBe('pacman');
+    expect(changed.pacmanColor).toBe('lime'); // second Pac-Man takes slot 1
+    expect(changed.can_start).toBe(false);
+
+    // Back to ghost -> one of each -> can start.
+    gm.handleSetRole('p2', 'ghost');
+    changed = lastEvent(emits, 'player_role_changed');
+    expect(changed.can_start).toBe(true);
+  });
+
+  it('only lets the host start, and reports start_failed without both roles', () => {
+    const { io, emits } = createMockIo();
+    const gm = new GameManager(io, 'room');
+    gm.handlePlayerJoin(createMockSocket('p1').socket, 'Alice'); // host
+    gm.handlePlayerJoin(createMockSocket('p2').socket, 'Bob');
+
+    // A non-host start attempt is ignored.
+    gm.handleStartGame('p2');
+    expect(gm.isGameStarted()).toBe(false);
+
+    // Host starting without a ghost (both Pac-Men) is rejected with a reason.
+    gm.handleSetRole('p2', 'pacman');
+    gm.handleStartGame('p1');
+    expect(gm.isGameStarted()).toBe(false);
+    expect(lastEvent(emits, 'start_failed').reason).toContain('at least 1');
+
+    // With one of each, the host can start.
+    gm.handleSetRole('p2', 'ghost');
+    gm.handleStartGame('p1');
+    expect(gm.isGameStarted()).toBe(true);
+  });
 });
 
 describe('GameManager — movement, pellets & cooldown', () => {
@@ -270,6 +311,39 @@ describe('GameManager — collisions & end states', () => {
     gm.handleLeaveGame('pac');
     expect(gm.isGameOver()).toBe(true);
     expect(lastEvent(emits, 'game_over').winner).toBe('ghosts');
+  });
+
+  it('converts a caught Pac-Man to a ghost without ending the game while others remain', () => {
+    const { io, emits } = createMockIo();
+    const gm = new GameManager(io, 'room', undefined);
+    gm.handlePlayerJoin(createMockSocket('pac1').socket, 'Pac1'); // pacman slot0 (1,1)
+    gm.handlePlayerJoin(createMockSocket('gh').socket, 'Ghost'); // ghost slot0 (18,1)
+    gm.handlePlayerJoin(createMockSocket('pac2').socket, 'Pac2'); // ghost slot1...
+    gm.handleSetRole('pac2', 'pacman'); // ...promoted to pacman slot1 (1,9), off row 1
+    gm.handleStartGame('pac1');
+
+    // Ghost walks the clear y=1 corridor onto Pac1 at (1,1).
+    for (let i = 0; i < 20 && !gm.isGameOver(); i++) {
+      vi.advanceTimersByTime(150);
+      gm.handlePlayerMove('gh', 'left');
+    }
+
+    // Pac1 was converted, but Pac2 still plays -> game continues.
+    expect(eventsOf(emits, 'player_converted').some(e => e.player_id === 'pac1')).toBe(true);
+    expect(gm.isGameOver()).toBe(false);
+  });
+
+  it('removes a board boost that is never collected after its lifetime', () => {
+    // Spawn an invincibility (index 1) at the first empty cell.
+    const { emits } = startedGame(queuedRandom([0.4, 0]));
+    vi.advanceTimersByTime(30_000); // first spawn tick
+    expect(eventsOf(emits, 'power_up_spawned').length).toBe(1);
+    const spawned = lastEvent(emits, 'power_up_spawned');
+
+    emits.length = 0;
+    vi.advanceTimersByTime(15_000); // sit uncollected past POWER_UP_LIFETIME_MS
+    const despawned = lastEvent(emits, 'power_up_despawned');
+    expect(despawned.position).toBe(spawned.position);
   });
 });
 

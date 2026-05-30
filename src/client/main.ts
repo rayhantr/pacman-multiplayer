@@ -1,3 +1,4 @@
+import './styles.css';
 import { io, type Socket } from 'socket.io-client';
 import type {
   ClientGameState,
@@ -7,89 +8,34 @@ import type {
   RoomInfo,
   ServerToClientEvents,
 } from '../shared/types';
-
-/** Client-local player record: the wire shape plus interpolation fields. */
-interface RenderPlayer {
-  id: string;
-  name: string;
-  role: 'pacman' | 'ghost';
-  ghostColor?: string | null | undefined;
-  x: number;
-  y: number;
-  direction: string;
-  // Smooth-movement interpolation state
-  renderX?: number;
-  renderY?: number;
-  targetX?: number;
-  targetY?: number;
-  lastMoveTime?: number;
-}
-
-interface SpawnedPowerUp {
-  type: PowerUpType;
-  spawnTime: number;
-}
-
-interface LocalGameState {
-  players: Record<string, RenderPlayer>;
-  maze: readonly (readonly number[])[];
-  pellets: Set<string>;
-  powerUps: Record<string, SpawnedPowerUp>;
-  score: number;
-  pelletsRemaining: number;
-  gameStarted: boolean;
-  gameOver: boolean;
-  playerId: string | null;
-  playerRole: string | null;
-  selectedRoom: string | null;
-  rooms: RoomInfo[];
-}
+import { COLORS, POWERUP_DURATIONS } from './constants';
+import type { LocalGameState } from './types';
+import { Renderer } from './renderer';
+import { Effects, vibrate } from './effects';
+import { AudioController } from './audio';
+import { showToast, showConfirm } from './dialogs';
 
 class PacManGame {
   private socket!: Socket<ServerToClientEvents, ClientToServerEvents>;
-  private canvas!: HTMLCanvasElement;
-  private ctx!: CanvasRenderingContext2D;
   private gameState!: LocalGameState;
-  private readonly CELL_SIZE = 30;
-  private readonly MAZE_WIDTH = 20;
-  private readonly MAZE_HEIGHT = 19;
 
-  private readonly COLORS = {
-    wall: '#0000ff',
-    path: '#000000',
-    pellet: '#ffff00',
-    pacman: '#ffff00',
-    ghost: {
-      red: '#ff0000',
-      pink: '#ffb8ff',
-      cyan: '#00ffff',
-      orange: '#ffb852',
-    },
-    powerUp: {
-      speed_boost: '#00ff00',
-      invincibility: '#ff00ff',
-      pellet_multiplier: '#00ffff',
-    },
-  };
+  // Collaborators: canvas rendering, game-feel effects, and audio are each their
+  // own module; this class orchestrates them around sockets, UI flow, and input.
+  private readonly renderer = new Renderer();
+  private readonly effects = new Effects();
+  private readonly audio = new AudioController();
+
+  // While the help tooltip is open, this closes it on outside-click/Escape.
+  private helpCloseHandler: ((event: Event) => void) | null = null;
+
+  // True when this client owns the room (first joiner): controls start/restart.
+  private isHost = false;
 
   constructor() {
-    this.initializeCanvas();
     this.initializeGameState();
     this.connectToServer();
     this.setupEventListeners();
     this.startGameLoop();
-  }
-
-  private initializeCanvas(): void {
-    this.canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
-    if (!this.canvas) {
-      console.error('Canvas element not found');
-      return;
-    }
-
-    this.ctx = this.canvas.getContext('2d')!;
-    this.canvas.width = this.MAZE_WIDTH * this.CELL_SIZE;
-    this.canvas.height = this.MAZE_HEIGHT * this.CELL_SIZE;
   }
 
   private initializeGameState(): void {
@@ -143,12 +89,13 @@ class PacManGame {
     this.socket.on('join_success', data => {
       this.gameState.playerId = data.player_id;
       this.gameState.playerRole = data.role;
+      this.isHost = data.is_host;
       this.updateGameState(data.game_state);
       this.showWaitingRoom();
     });
 
     this.socket.on('join_failed', data => {
-      alert('Failed to join game: ' + data.reason);
+      showToast('Failed to join game: ' + data.reason, 'error');
       const joinButton = document.getElementById('joinButton') as HTMLButtonElement | null;
       if (joinButton) {
         joinButton.disabled = false;
@@ -167,10 +114,52 @@ class PacManGame {
       this.updatePlayersDisplay();
     });
 
+    this.socket.on('player_role_changed', data => {
+      const player = this.gameState.players[data.player_id];
+      if (player) {
+        player.role = data.role;
+        player.ghostColor = data.ghostColor ?? null;
+        player.pacmanColor = data.pacmanColor ?? null;
+      }
+      if (data.player_id === this.gameState.playerId) {
+        this.gameState.playerRole = data.role;
+      }
+      this.updatePlayersDisplay();
+      this.updateStartButton(data.can_start);
+    });
+
+    this.socket.on('start_failed', data => {
+      showToast(data.reason, 'error');
+    });
+
+    this.socket.on('player_converted', data => {
+      const player = this.gameState.players[data.player_id];
+      if (player) {
+        player.role = 'ghost';
+        player.ghostColor = data.ghostColor ?? null;
+        player.pacmanColor = null;
+        // Snap to the ghost spawn — no interpolation across the teleport.
+        player.x = data.x;
+        player.y = data.y;
+        player.targetX = data.x;
+        player.targetY = data.y;
+        player.renderX = data.x;
+        player.renderY = data.y;
+        delete player.lastMoveTime;
+        delete player.activePowerUps;
+      }
+      if (data.player_id === this.gameState.playerId) {
+        this.gameState.playerRole = 'ghost';
+        this.applyHudRoleClass();
+        this.updatePowerUpTimers();
+      }
+      vibrate(40);
+    });
+
     this.socket.on('game_started', () => {
       this.gameState.gameStarted = true;
       this.showGameCanvas();
-      this.playBackgroundMusic();
+      this.audio.playBackgroundMusic();
     });
 
     this.socket.on('player_moved', data => {
@@ -199,7 +188,12 @@ class PacManGame {
       this.gameState.score = data.score;
       this.gameState.pelletsRemaining = data.pellets_remaining;
       this.updateGameInfo();
-      this.playPelletSound();
+      this.audio.playPelletSound();
+
+      // Juice: a small amber burst + a light haptic tick where the pellet was.
+      const [x, y] = data.position.split(',').map(Number);
+      this.effects.spawnBurst(x!, y!, COLORS.pellet, 8);
+      vibrate(12);
     });
 
     this.socket.on('power_up_spawned', data => {
@@ -209,25 +203,63 @@ class PacManGame {
       };
     });
 
-    this.socket.on('power_up_collected', data => {
+    this.socket.on('power_up_despawned', data => {
+      // Boost expired uncollected; the renderer drops the sprite next frame.
       delete this.gameState.powerUps[data.position];
-      this.playPowerUpSound();
     });
 
-    this.socket.on('power_up_expired', () => {
-      // Effect timed out server-side; no board state to update on the client.
+    this.socket.on('power_up_collected', data => {
+      delete this.gameState.powerUps[data.position];
+      this.audio.playPowerUpSound();
+
+      const player = this.gameState.players[data.player_id];
+      if (player) {
+        const duration = POWERUP_DURATIONS[data.type];
+        player.activePowerUps = player.activePowerUps ?? {};
+        player.activePowerUps[data.type] = { endTime: Date.now() + duration, duration };
+        const [x, y] = data.position.split(',').map(Number);
+        this.effects.spawnBurst(x!, y!, COLORS.powerUp[data.type], 14);
+      }
+      vibrate(30);
+      this.updatePowerUpTimers();
+    });
+
+    this.socket.on('power_up_expired', data => {
+      const player = this.gameState.players[data.player_id];
+      if (player?.activePowerUps) {
+        delete player.activePowerUps[data.type];
+      }
+      this.updatePowerUpTimers();
     });
 
     this.socket.on('game_over', data => {
       this.gameState.gameOver = true;
-      this.showGameOverScreen(data.winner, data.score);
-      this.stopBackgroundMusic();
+      this.audio.stopBackgroundMusic();
+      vibrate([40, 60, 120]);
+
+      if (data.winner === 'ghosts') {
+        // Caught: play the death shrink + screenshake before showing the overlay.
+        const pacman = Object.values(this.gameState.players).find(p => p.role === 'pacman');
+        if (pacman) {
+          this.effects.triggerDeath(
+            pacman.renderX ?? pacman.x,
+            pacman.renderY ?? pacman.y,
+            COLORS.pacman
+          );
+        }
+        this.effects.triggerShake(320, 0.28);
+        window.setTimeout(() => this.showGameOverScreen(data.winner, data.score), 900);
+      } else {
+        this.showGameOverScreen(data.winner, data.score);
+      }
     });
 
     this.socket.on('game_restarted', data => {
       this.gameState.gameStarted = false;
       this.gameState.gameOver = false;
+      this.effects.reset();
       this.updateGameState(data.game_state);
+      this.updatePowerUpTimers();
       this.showWaitingRoom();
     });
 
@@ -238,20 +270,13 @@ class PacManGame {
 
     this.socket.on('room_created', data => {
       this.gameState.selectedRoom = data.roomId;
-      alert(
-        `Room created successfully!\n\nRoom Code: ${data.roomName}\n\n` +
-          'Share this code with friends so they can join your room.'
-      );
+      showToast(`Room "${data.roomName}" created — share this code so friends can join.`, 'info');
       // Room creation automatically joins the room; join_success follows.
     });
   }
 
   private setupEventListeners(): void {
     document.addEventListener('keydown', event => {
-      if (!this.gameState.gameStarted || this.gameState.gameOver) {
-        return;
-      }
-
       let direction: Direction | null = null;
       switch (event.key) {
         case 'ArrowUp':
@@ -270,9 +295,22 @@ class PacManGame {
 
       if (direction) {
         event.preventDefault();
-        this.socket.emit('player_move', { direction });
+        this.sendMove(direction);
       }
     });
+
+    // Re-fit the canvas to the viewport while a game is on screen.
+    window.addEventListener('resize', () => {
+      if (document.body.classList.contains('game-active')) {
+        this.renderer.resize(this.gameState.maze);
+      }
+    });
+
+    // Split, handheld-style touch pad: left/right on one side, up/down on the other.
+    this.bindHold('dpadUp', 'up');
+    this.bindHold('dpadDown', 'down');
+    this.bindHold('dpadLeft', 'left');
+    this.bindHold('dpadRight', 'right');
 
     this.bindClick('joinRoomButton', () => this.joinRoomByCode());
     this.bindClick('quickJoinButton', () => this.quickJoin());
@@ -282,6 +320,16 @@ class PacManGame {
     this.bindClick('joinButton', () => this.joinGame());
     this.bindClick('backToRoomsFromJoinButton', () => this.showRoomSelection());
     this.bindClick('startButton', () => this.startGame());
+    this.bindClick('exitGameButton', () =>
+      showConfirm(
+        'Leave the game and return to the lobby?',
+        () => this.backToLobby(),
+        'Leave',
+        'Stay'
+      )
+    );
+    this.bindClick('muteButton', () => this.audio.toggleMute());
+    this.bindClick('helpButton', () => this.toggleHelp());
 
     const roomCodeInput = document.getElementById('roomCodeInput') as HTMLInputElement | null;
     roomCodeInput?.addEventListener('keypress', event => {
@@ -311,122 +359,97 @@ class PacManGame {
     el?.addEventListener('click', handler);
   }
 
+  /**
+   * Toggle the "How it works" help tooltip on click/tap (hover is handled in
+   * CSS). While open, an outside click or Escape closes it.
+   */
+  private toggleHelp(): void {
+    if (this.helpCloseHandler) {
+      this.closeHelp();
+      return;
+    }
+
+    const tooltip = document.getElementById('helpTooltip');
+    const button = document.getElementById('helpButton');
+    if (!tooltip || !button) {
+      return;
+    }
+
+    tooltip.classList.add('is-open');
+    tooltip.setAttribute('aria-hidden', 'false');
+    button.setAttribute('aria-expanded', 'true');
+
+    this.helpCloseHandler = (event: Event): void => {
+      if (event.type === 'keydown') {
+        if ((event as KeyboardEvent).key === 'Escape') {
+          this.closeHelp();
+        }
+        return;
+      }
+      // Clicks inside the help corner (button or tooltip) keep it open.
+      if (!document.getElementById('helpCorner')?.contains(event.target as Node)) {
+        this.closeHelp();
+      }
+    };
+
+    // Capture phase so we see the click before it can re-trigger the button.
+    document.addEventListener('click', this.helpCloseHandler, true);
+    document.addEventListener('keydown', this.helpCloseHandler, true);
+  }
+
+  private closeHelp(): void {
+    document.getElementById('helpTooltip')?.classList.remove('is-open');
+    document.getElementById('helpTooltip')?.setAttribute('aria-hidden', 'true');
+    document.getElementById('helpButton')?.setAttribute('aria-expanded', 'false');
+    if (this.helpCloseHandler) {
+      document.removeEventListener('click', this.helpCloseHandler, true);
+      document.removeEventListener('keydown', this.helpCloseHandler, true);
+      this.helpCloseHandler = null;
+    }
+  }
+
+  /** Bind a touch-pad button so press-and-hold repeats the move, mirroring keyboard auto-repeat. */
+  private bindHold(elementId: string, direction: Direction): void {
+    const el = document.getElementById(elementId);
+    if (!el) {
+      return;
+    }
+
+    let intervalId: number | null = null;
+    const stop = (): void => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+    const start = (event: PointerEvent): void => {
+      event.preventDefault();
+      this.sendMove(direction);
+      stop();
+      intervalId = window.setInterval(() => this.sendMove(direction), 120);
+    };
+
+    el.addEventListener('pointerdown', start);
+    el.addEventListener('pointerup', stop);
+    el.addEventListener('pointercancel', stop);
+    el.addEventListener('pointerleave', stop);
+  }
+
+  private sendMove(direction: Direction): void {
+    if (!this.gameState.gameStarted || this.gameState.gameOver) {
+      return;
+    }
+    this.socket.emit('player_move', { direction });
+  }
+
   private startGameLoop(): void {
     const gameLoop = (): void => {
-      this.render();
+      const now = Date.now();
+      this.renderer.render(this.gameState, this.effects, now);
+      this.updateTimerBars(now);
       requestAnimationFrame(gameLoop);
     };
     gameLoop();
-  }
-
-  private render(): void {
-    if (!this.gameState.gameStarted) {
-      return;
-    }
-
-    this.ctx.fillStyle = '#000000';
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    this.updatePlayerInterpolation();
-    this.drawMaze();
-    this.drawPellets();
-    this.drawPowerUps();
-    this.drawPlayers();
-  }
-
-  private updatePlayerInterpolation(): void {
-    const currentTime = Date.now();
-    const MOVEMENT_DURATION = 200; // ms
-
-    Object.values(this.gameState.players).forEach(player => {
-      if (player.lastMoveTime && player.targetX !== undefined && player.targetY !== undefined) {
-        const elapsed = currentTime - player.lastMoveTime;
-        const progress = Math.min(elapsed / MOVEMENT_DURATION, 1);
-        const easedProgress = this.easeOutCubic(progress);
-
-        const startX = player.renderX ?? player.targetX;
-        const startY = player.renderY ?? player.targetY;
-
-        player.renderX = startX + (player.targetX - startX) * easedProgress;
-        player.renderY = startY + (player.targetY - startY) * easedProgress;
-
-        if (progress >= 1) {
-          player.renderX = player.targetX;
-          player.renderY = player.targetY;
-          delete player.lastMoveTime;
-        }
-      } else {
-        player.renderX = player.renderX ?? player.x;
-        player.renderY = player.renderY ?? player.y;
-      }
-    });
-  }
-
-  private easeOutCubic(t: number): number {
-    return 1 - Math.pow(1 - t, 3);
-  }
-
-  private drawMaze(): void {
-    if (!this.gameState.maze.length) {
-      return;
-    }
-
-    this.ctx.fillStyle = this.COLORS.wall;
-    for (let y = 0; y < this.gameState.maze.length; y++) {
-      const row = this.gameState.maze[y]!;
-      for (let x = 0; x < row.length; x++) {
-        if (row[x] === 1) {
-          this.ctx.fillRect(x * this.CELL_SIZE, y * this.CELL_SIZE, this.CELL_SIZE, this.CELL_SIZE);
-        }
-      }
-    }
-  }
-
-  private drawPellets(): void {
-    this.ctx.fillStyle = this.COLORS.pellet;
-    this.gameState.pellets.forEach(pelletPos => {
-      const [x, y] = pelletPos.split(',').map(Number);
-      const centerX = x! * this.CELL_SIZE + this.CELL_SIZE / 2;
-      const centerY = y! * this.CELL_SIZE + this.CELL_SIZE / 2;
-
-      this.ctx.beginPath();
-      this.ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
-      this.ctx.fill();
-    });
-  }
-
-  private drawPowerUps(): void {
-    Object.entries(this.gameState.powerUps).forEach(([position, powerUp]) => {
-      const [x, y] = position.split(',').map(Number);
-      const centerX = x! * this.CELL_SIZE + this.CELL_SIZE / 2;
-      const centerY = y! * this.CELL_SIZE + this.CELL_SIZE / 2;
-
-      this.ctx.fillStyle = this.COLORS.powerUp[powerUp.type];
-      this.ctx.beginPath();
-      this.ctx.arc(centerX, centerY, 8, 0, Math.PI * 2);
-      this.ctx.fill();
-    });
-  }
-
-  private drawPlayers(): void {
-    Object.values(this.gameState.players).forEach(player => {
-      const renderX = player.renderX ?? player.x;
-      const renderY = player.renderY ?? player.y;
-
-      const centerX = renderX * this.CELL_SIZE + this.CELL_SIZE / 2;
-      const centerY = renderY * this.CELL_SIZE + this.CELL_SIZE / 2;
-
-      if (player.role === 'pacman') {
-        this.ctx.fillStyle = this.COLORS.pacman;
-      } else {
-        const ghostColor = player.ghostColor as keyof typeof this.COLORS.ghost;
-        this.ctx.fillStyle = this.COLORS.ghost[ghostColor] || this.COLORS.ghost.red;
-      }
-
-      this.ctx.beginPath();
-      this.ctx.arc(centerX, centerY, this.CELL_SIZE / 2 - 2, 0, Math.PI * 2);
-      this.ctx.fill();
-    });
   }
 
   public joinGame(roomCode?: string): void {
@@ -435,12 +458,12 @@ class PacManGame {
     const playerName = nameInput?.value.trim();
 
     if (!playerName) {
-      alert('Please enter your name');
+      showToast('Please enter your name', 'error');
       return;
     }
 
     if (!this.socket.connected) {
-      alert('Not connected to server. Please wait for connection or refresh the page.');
+      showToast('Not connected to server. Please wait or refresh the page.', 'error');
       return;
     }
 
@@ -475,10 +498,7 @@ class PacManGame {
 
   private showWaitingRoom(): void {
     this.hideAllScreens();
-    const waitingRoom = document.getElementById('waitingRoom');
-    if (waitingRoom) {
-      waitingRoom.style.display = 'block';
-    }
+    this.revealScreen('waitingRoom');
     this.updatePlayersDisplay();
   }
 
@@ -488,7 +508,20 @@ class PacManGame {
     if (gameContainer) {
       gameContainer.style.display = 'block';
     }
+    document.body.classList.add('game-active');
+    this.applyHudRoleClass();
     this.updateGameInfo();
+    // Size after the immersive flex layout has applied so the container has
+    // its final dimensions to measure against.
+    requestAnimationFrame(() => this.renderer.resize(this.gameState.maze));
+  }
+
+  /** Tint the in-game HUD by the local player's current role (Feature 4). */
+  private applyHudRoleClass(): void {
+    document.body.classList.remove('role-pacman', 'role-ghost');
+    if (this.gameState.playerRole === 'pacman' || this.gameState.playerRole === 'ghost') {
+      document.body.classList.add(`role-${this.gameState.playerRole}`);
+    }
   }
 
   private updatePlayersDisplay(): void {
@@ -501,11 +534,24 @@ class PacManGame {
     Object.values(this.gameState.players).forEach(player => {
       const playerDiv = document.createElement('div');
       playerDiv.className = `player-item player-${player.role}`;
-      playerDiv.textContent = `${player.name} (${player.role.toUpperCase()})`;
+
+      const label = document.createElement('span');
+      label.textContent = `${player.name} (${player.role.toUpperCase()})`;
+      playerDiv.appendChild(label);
+
+      // The local player gets a button to switch their lobby role.
+      if (player.id === this.gameState.playerId) {
+        const target = player.role === 'pacman' ? 'ghost' : 'pacman';
+        const toggle = document.createElement('button');
+        toggle.className = 'btn btn-secondary role-toggle';
+        toggle.type = 'button';
+        toggle.textContent = target === 'pacman' ? 'Be Pac-Man' : 'Be Ghost';
+        toggle.addEventListener('click', () => this.socket.emit('set_role', { role: target }));
+        playerDiv.appendChild(toggle);
+      }
+
       playersList.appendChild(playerDiv);
     });
-
-    this.setText('playersCount', Object.keys(this.gameState.players).length.toString());
   }
 
   private updateStartButton(canStart: boolean): void {
@@ -514,11 +560,12 @@ class PacManGame {
       return;
     }
 
-    if (this.gameState.playerRole === 'pacman') {
+    // Only the host can start; non-hosts never see the button.
+    if (this.isHost) {
       startButton.style.display = 'block';
       startButton.disabled = !canStart;
     } else {
-      startButton.disabled = true;
+      startButton.style.display = 'none';
     }
   }
 
@@ -527,12 +574,70 @@ class PacManGame {
     const pellets = this.gameState.pelletsRemaining.toString();
     const players = Object.keys(this.gameState.players).length.toString();
 
-    this.setText('score', score);
-    this.setText('pellets', pellets);
-    this.setText('playersCount', players);
+    // Pop the score when it changes (restart the CSS animation via a reflow).
+    const scoreEl = document.getElementById('gameScore');
+    if (scoreEl && scoreEl.textContent !== score) {
+      scoreEl.classList.remove('pop');
+      void scoreEl.offsetWidth;
+      scoreEl.classList.add('pop');
+    }
+
     this.setText('gameScore', score);
     this.setText('gamePellets', pellets);
     this.setText('gamePlayers', players);
+  }
+
+  /** Rebuild the local player's power-up timer chips in the HUD. */
+  private updatePowerUpTimers(): void {
+    const container = document.getElementById('powerupTimers');
+    if (!container) {
+      return;
+    }
+
+    const me = this.gameState.playerId ? this.gameState.players[this.gameState.playerId] : null;
+    const active = me?.activePowerUps;
+    container.textContent = '';
+    if (!active) {
+      return;
+    }
+
+    const labels: Record<PowerUpType, string> = {
+      speed_boost: 'Speed',
+      invincibility: 'Shield',
+      pellet_multiplier: '2× Score',
+    };
+
+    (Object.keys(active) as PowerUpType[]).forEach(type => {
+      const effect = active[type]!;
+      const chip = document.createElement('div');
+      chip.className = `pu-chip pu-${type}`;
+
+      const label = document.createElement('span');
+      label.className = 'pu-label';
+      label.textContent = labels[type];
+
+      const bar = document.createElement('span');
+      bar.className = 'pu-bar';
+      const fill = document.createElement('span');
+      fill.className = 'pu-fill';
+      fill.dataset.endtime = String(effect.endTime);
+      fill.dataset.duration = String(effect.duration);
+      bar.appendChild(fill);
+
+      chip.append(label, bar);
+      container.appendChild(chip);
+    });
+  }
+
+  /** Deplete the timer-chip bars each frame; cheap (only a handful of elements). */
+  private updateTimerBars(now: number): void {
+    const fills = document.querySelectorAll<HTMLElement>('#powerupTimers .pu-fill');
+    fills.forEach(fill => {
+      const end = Number(fill.dataset.endtime);
+      const duration = Number(fill.dataset.duration);
+      const remaining = Math.max(0, end - now);
+      fill.style.width = duration > 0 ? `${(remaining / duration) * 100}%` : '0%';
+    });
   }
 
   private setText(elementId: string, text: string): void {
@@ -599,11 +704,13 @@ class PacManGame {
     this.gameState.gameOver = false;
     this.gameState.score = 0;
     this.gameState.pelletsRemaining = 0;
+    this.effects.reset();
+    this.updatePowerUpTimers();
 
     document.getElementById('gameOverScreen')?.remove();
     this.showWaitingRoom();
 
-    if (this.gameState.playerRole === 'pacman') {
+    if (this.isHost) {
       this.socket.emit('restart_game');
     }
   }
@@ -613,9 +720,13 @@ class PacManGame {
     this.gameState.gameOver = false;
     this.gameState.playerId = null;
     this.gameState.playerRole = null;
+    this.isHost = false;
     this.gameState.players = {};
+    this.effects.reset();
+    this.updatePowerUpTimers();
 
     document.getElementById('gameOverScreen')?.remove();
+    this.audio.stopBackgroundMusic();
     this.socket.emit('leave_game');
     this.showRoomSelection();
     this.requestRoomsList();
@@ -623,35 +734,6 @@ class PacManGame {
     const nameInput = document.getElementById('playerName') as HTMLInputElement | null;
     if (nameInput) {
       nameInput.value = '';
-    }
-  }
-
-  private playBackgroundMusic(): void {
-    const bgMusic = document.getElementById('backgroundMusic') as HTMLAudioElement | null;
-    if (bgMusic) {
-      bgMusic.volume = 0.3;
-      bgMusic.play().catch(e => console.log('Audio play failed:', e));
-    }
-  }
-
-  private stopBackgroundMusic(): void {
-    const bgMusic = document.getElementById('backgroundMusic') as HTMLAudioElement | null;
-    bgMusic?.pause();
-  }
-
-  private playPowerUpSound(): void {
-    const powerUpSound = document.getElementById('powerUpSound') as HTMLAudioElement | null;
-    if (powerUpSound) {
-      powerUpSound.volume = 0.7;
-      powerUpSound.play().catch(e => console.log('Audio play failed:', e));
-    }
-  }
-
-  private playPelletSound(): void {
-    const pelletSound = document.getElementById('pelletSound') as HTMLAudioElement | null;
-    if (pelletSound) {
-      pelletSound.volume = 0.5;
-      pelletSound.play().catch(e => console.log('Audio play failed:', e));
     }
   }
 
@@ -740,7 +822,7 @@ class PacManGame {
     const roomCode = roomCodeInput?.value.trim();
 
     if (!roomCode) {
-      alert('Please enter a room code');
+      showToast('Please enter a room code', 'error');
       return;
     }
 
@@ -750,26 +832,29 @@ class PacManGame {
 
   private showCreateRoomForm(): void {
     this.hideAllScreens();
-    const createRoomForm = document.getElementById('createRoomForm');
-    if (createRoomForm) {
-      createRoomForm.style.display = 'block';
-    }
+    this.revealScreen('createRoomForm');
   }
 
   private showRoomSelection(): void {
     this.hideAllScreens();
-    const roomSelection = document.getElementById('roomSelection');
-    if (roomSelection) {
-      roomSelection.style.display = 'block';
-    }
+    this.revealScreen('roomSelection');
   }
 
   private showJoinForm(): void {
     this.hideAllScreens();
-    const joinForm = document.getElementById('joinForm');
-    if (joinForm) {
-      joinForm.style.display = 'block';
+    this.revealScreen('joinForm');
+  }
+
+  /** Show a screen with a replayed fade/slide entrance (display:block + animate-in). */
+  private revealScreen(id: string): void {
+    const el = document.getElementById(id);
+    if (!el) {
+      return;
     }
+    el.style.display = 'block';
+    el.classList.remove('animate-in');
+    void el.offsetWidth; // force reflow so the animation restarts each time
+    el.classList.add('animate-in');
   }
 
   private hideAllScreens(): void {
@@ -780,6 +865,8 @@ class PacManGame {
         screen.style.display = 'none';
       }
     });
+    // Leaving any screen exits the immersive full-bleed game layout.
+    document.body.classList.remove('game-active', 'role-pacman', 'role-ghost');
   }
 
   private createRoom(): void {
@@ -790,17 +877,17 @@ class PacManGame {
     const hostName = hostNameInput?.value.trim();
 
     if (!roomName) {
-      alert('Please enter a room name');
+      showToast('Please enter a room name', 'error');
       return;
     }
 
     if (!hostName) {
-      alert('Please enter your name');
+      showToast('Please enter your name', 'error');
       return;
     }
 
     if (!this.socket.connected) {
-      alert('Not connected to server. Please wait for connection or refresh the page.');
+      showToast('Not connected to server. Please wait or refresh the page.', 'error');
       return;
     }
 

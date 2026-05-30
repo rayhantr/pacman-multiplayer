@@ -1,15 +1,18 @@
 import { defineConfig } from 'vite';
+import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const repoRoot = dirname(fileURLToPath(import.meta.url));
 
-// The client lives in src/client; static assets (css/images/sounds) live in
-// ./public and are copied verbatim into the build. The production bundle is
-// emitted to dist/client, which the Express server serves.
+// The client lives in src/client; static assets (images/sounds) live in
+// ./public and are copied verbatim into the build. The stylesheet is imported
+// from main.ts so Vite + Tailwind process it. The production bundle is emitted
+// to dist/client, which the Express server serves.
 export default defineConfig({
   root: resolve(repoRoot, 'src/client'),
   publicDir: resolve(repoRoot, 'public'),
+  plugins: [tailwindcss()],
   build: {
     outDir: resolve(repoRoot, 'dist/client'),
     emptyOutDir: true,

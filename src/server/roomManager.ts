@@ -105,6 +105,10 @@ export class RoomManager {
     this.withRoom(socketId, gameManager => gameManager.handlePlayerMove(socketId, direction));
   }
 
+  public handleSetRole(socketId: string, role: 'pacman' | 'ghost'): void {
+    this.withRoom(socketId, gameManager => gameManager.handleSetRole(socketId, role));
+  }
+
   public handleStartGame(socketId: string): void {
     this.withRoom(socketId, gameManager => gameManager.handleStartGame(socketId));
   }

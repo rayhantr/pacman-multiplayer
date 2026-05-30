@@ -1,0 +1,819 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   Multiplayer Pac-Man — clean, minimal, mobile-first UI
+   Flat look: square corners, no shadows; separation comes from borders.
+   Tailwind v4: the palette lives in @theme; components are built with @apply.
+   ========================================================================== */
+
+@theme {
+  /* Dark UI: slate-based chrome. The canvas world palette lives separately in
+     constants.ts; these tokens style the page chrome only. */
+  --color-bg: #0f172a;
+  --color-surface: #1e293b;
+  --color-surface-2: #273449;
+  --color-border: #334155;
+  --color-text: #f1f5f9;
+  --color-text-muted: #94a3b8;
+
+  --color-accent: #f59e0b;
+  --color-accent-hover: #d97706;
+  --color-accent-soft: #3b2c08;
+  --color-accent-contrast: #1f2937;
+
+  --color-success: #10b981;
+  --color-success-soft: #06352a;
+  --color-danger: #ef4444;
+  --color-danger-soft: #3a1212;
+  --color-info: #3b82f6;
+  --color-info-soft: #152a4d;
+
+  --color-board: #0f172a;
+
+  /* HUD accent driven by the local player's current role (set on <body>). */
+  --role-accent: var(--color-accent);
+
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Tailwind's Preflight (pulled in by the import above) supplies the reset:
+   box-sizing, margin reset, and form-element normalization. */
+@layer base {
+  body {
+    @apply font-sans bg-bg text-text min-h-screen leading-normal;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* Preflight resets heading weight; components below restore weights. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply leading-[1.2] tracking-[-0.01em];
+  }
+}
+
+@layer components {
+  .container {
+    @apply mx-auto max-w-[760px] p-4;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  /* ----- Header --------------------------------------------------------- */
+  header {
+    @apply mb-6 text-center;
+  }
+
+  .game-title {
+    @apply mb-[18px] inline-flex items-center gap-[0.4em] text-[1.75rem] font-extrabold text-text;
+  }
+
+  .game-title-dot {
+    @apply h-[0.85em] w-[0.85em] rounded-full bg-accent;
+    /* Pac-Man wedge: mouth opening to the right */
+    clip-path: polygon(100% 22%, 48% 50%, 100% 78%, 100% 100%, 0 100%, 0 0, 100% 0);
+  }
+
+  .game-info {
+    @apply flex flex-wrap justify-center gap-2.5;
+  }
+
+  .stat {
+    @apply inline-flex min-w-[72px] flex-col items-center gap-0.5 border border-border bg-surface px-3.5 py-2 text-base font-bold;
+  }
+
+  .stat em {
+    @apply text-[0.68rem] font-medium uppercase not-italic tracking-[0.04em] text-text-muted;
+  }
+
+  /* Connection status: main.ts overwrites className to just
+     connected/disconnected, so the base pill look lives on the ID. */
+  #connectionStatus {
+    @apply inline-flex items-center border border-border bg-surface px-3.5 py-2 text-[0.78rem] font-semibold;
+  }
+
+  #connectionStatus::before {
+    content: '';
+    @apply mr-2 h-2 w-2 rounded-full bg-current;
+  }
+
+  #connectionStatus.connected {
+    @apply border-success bg-success-soft text-success;
+  }
+
+  #connectionStatus.disconnected {
+    @apply border-danger bg-danger-soft text-danger;
+  }
+
+  /* ----- Screens & cards ------------------------------------------------ */
+  .screen {
+    @apply w-full;
+  }
+
+  /* Room selection: form on the left, available rooms on the right.
+     Stacks to a single column on narrow screens. */
+  .room-selection-grid {
+    @apply grid grid-cols-1 gap-4;
+  }
+
+  @media (min-width: 768px) {
+    .room-selection-grid {
+      @apply grid-cols-2 items-start;
+    }
+  }
+
+  /* Each panel fills its grid column instead of the centered 480px width. */
+  .room-selection-grid .form-container {
+    @apply mx-0 max-w-none;
+  }
+
+  .form-container,
+  .waiting-container {
+    @apply mx-auto max-w-[480px] border border-border bg-surface p-6;
+  }
+
+  .waiting-container {
+    @apply max-w-[560px];
+  }
+
+  .form-container h2,
+  .waiting-container h2 {
+    @apply mb-1.5 text-[1.35rem] font-bold;
+  }
+
+  .form-container > p,
+  .waiting-container > p {
+    @apply mb-[22px] text-[0.92rem] text-text-muted;
+  }
+
+  /* ----- Inputs --------------------------------------------------------- */
+  .input-group {
+    @apply mb-[18px] flex flex-col gap-3;
+  }
+
+  input[type='text'] {
+    @apply w-full border border-border bg-surface px-[15px] py-[13px] font-sans text-base text-text;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  input[type='text']::placeholder {
+    @apply text-[#94a3b8];
+  }
+
+  input[type='text']:focus {
+    @apply border-accent outline-none;
+  }
+
+  /* ----- Buttons -------------------------------------------------------- */
+  .btn {
+    @apply cursor-pointer border border-transparent px-5 py-[13px] font-sans text-[0.95rem] font-semibold;
+    transition:
+      background 0.15s ease,
+      border-color 0.15s ease,
+      transform 0.05s ease,
+      box-shadow 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btn:active:not(:disabled) {
+    @apply translate-y-px;
+  }
+
+  .btn:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  .btn-primary {
+    @apply bg-accent text-accent-contrast;
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply bg-accent-hover;
+  }
+
+  .btn-success {
+    @apply bg-success text-white;
+  }
+  .btn-success:hover:not(:disabled) {
+    @apply bg-[#059669];
+  }
+
+  .btn-secondary {
+    @apply border-border bg-surface text-text;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    @apply border-[#475569] bg-surface-2;
+  }
+
+  .btn-danger {
+    @apply bg-danger text-white;
+  }
+  .btn-danger:hover:not(:disabled) {
+    @apply bg-[#dc2626];
+  }
+
+  /* ----- Room selection ------------------------------------------------- */
+  .room-actions {
+    @apply mb-[26px] flex flex-col gap-2.5;
+  }
+
+  .room-actions .btn {
+    @apply w-full;
+  }
+
+  .form-actions {
+    @apply flex flex-wrap gap-2.5;
+  }
+
+  .form-actions .btn {
+    @apply flex-[1_1_140px];
+  }
+
+  .rooms-list-container {
+    @apply mt-1;
+  }
+
+  .rooms-list-container h3,
+  .players-list h3 {
+    @apply mb-3 text-[0.95rem] font-bold;
+  }
+
+  #roomsList {
+    @apply flex max-h-[280px] flex-col gap-2.5 overflow-y-auto border border-border bg-surface-2 p-2.5;
+  }
+
+  .room-item {
+    @apply flex flex-wrap items-center gap-2.5 border border-border bg-surface px-3.5 py-3;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  .room-item:hover {
+    @apply border-accent;
+  }
+
+  .room-item-info {
+    @apply flex min-w-0 flex-auto flex-col gap-0.5;
+  }
+
+  .room-name {
+    @apply overflow-hidden text-ellipsis whitespace-nowrap text-[0.95rem] font-bold text-text;
+  }
+
+  .room-details {
+    @apply text-[0.78rem] text-text-muted;
+  }
+
+  .room-status {
+    @apply px-2.5 py-1 text-[0.68rem] font-bold uppercase tracking-[0.04em];
+  }
+
+  .room-status.waiting {
+    @apply bg-success-soft text-[#6ee7b7];
+  }
+
+  .room-status.playing {
+    @apply bg-accent-soft text-accent-hover;
+  }
+
+  .room-status.full {
+    @apply bg-danger-soft text-[#fca5a5];
+  }
+
+  .room-join-btn {
+    @apply px-4 py-2 text-[0.82rem];
+  }
+
+  .loading {
+    @apply p-[18px] text-center text-[0.88rem] text-text-muted;
+  }
+
+  /* ----- Help corner (How it works) ------------------------------------- */
+  /* Square "?" button fixed to the bottom-right; the tooltip panel shows on
+     hover (desktop) or when toggled open via .is-open (touch/click). */
+  .help-corner {
+    @apply fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2;
+  }
+
+  .help-button {
+    @apply flex h-10 w-10 cursor-pointer items-center justify-center border border-border bg-surface text-lg font-bold text-text;
+    transition:
+      border-color 0.15s ease,
+      color 0.15s ease;
+  }
+
+  .help-button:hover {
+    @apply border-accent text-accent;
+  }
+
+  .help-tooltip {
+    @apply hidden w-[280px] border border-border bg-surface p-[18px];
+  }
+
+  .help-corner:hover .help-tooltip,
+  .help-tooltip.is-open {
+    @apply block;
+  }
+
+  .help-tooltip h3 {
+    @apply mb-2.5 text-[0.95rem] font-bold text-text;
+  }
+
+  .help-tooltip p {
+    @apply mb-1.5 text-[0.84rem] text-text-muted;
+  }
+
+  .help-tooltip strong {
+    @apply text-text;
+  }
+
+  /* ----- Waiting room --------------------------------------------------- */
+  .players-list {
+    @apply mb-6;
+  }
+
+  #playersList {
+    @apply flex flex-col gap-2;
+  }
+
+  .player-item {
+    @apply flex items-center justify-between gap-2.5 border border-border border-l-4 bg-surface-2 px-3.5 py-3 text-[0.9rem] font-semibold;
+  }
+
+  .player-pacman {
+    @apply border-l-accent bg-accent-soft text-[#fcd34d];
+  }
+
+  .player-ghost {
+    @apply border-l-info bg-info-soft text-[#93c5fd];
+  }
+
+  /* Local player's lobby role switch, sits inline in the player row. */
+  .role-toggle {
+    @apply shrink-0 px-3 py-1.5 text-[0.78rem];
+  }
+
+  #startButton {
+    @apply mb-6 w-full;
+  }
+
+  /* ----- Instructions --------------------------------------------------- */
+  .instructions {
+    @apply border-t border-border pt-5 text-left;
+  }
+
+  .instructions h3,
+  .instructions h4 {
+    @apply mb-2.5 text-[0.92rem] font-bold text-text;
+  }
+
+  .instructions p {
+    @apply mb-1.5 text-[0.86rem] text-text-muted;
+  }
+
+  .power-ups {
+    @apply mt-4;
+  }
+
+  .power-up-item {
+    @apply mb-1.5 flex items-center gap-2.5 text-[0.84rem] text-text-muted;
+  }
+
+  .power-up-icon {
+    @apply w-[18px] text-center text-base;
+  }
+
+  .power-up-icon.speed {
+    @apply text-success;
+  }
+  .power-up-icon.invincibility {
+    @apply text-[#d946ef];
+  }
+  .power-up-icon.multiplier {
+    @apply text-[#0ea5e9];
+  }
+
+  /* ----- Game canvas ---------------------------------------------------- */
+  .game-canvas-container {
+    @apply mb-4 flex justify-center;
+  }
+
+  #gameCanvas {
+    @apply h-auto max-w-full border border-border bg-board;
+  }
+
+  .game-controls {
+    @apply text-center;
+  }
+
+  /* Left-hand group in the in-game bar: mute + Leave buttons. */
+  .controls-actions {
+    @apply flex items-center gap-2;
+  }
+
+  .controls-info p {
+    @apply mb-3.5 text-[0.86rem] text-text-muted;
+  }
+
+  .game-stats {
+    @apply flex flex-wrap justify-center gap-2.5;
+  }
+
+  #exitGameButton {
+    @apply mt-[18px];
+  }
+
+  /* ----- Game over overlay ---------------------------------------------- */
+  .game-over-screen {
+    @apply fixed inset-0 z-[1000] flex items-center justify-center p-5;
+    background: rgba(2, 6, 23, 0.72);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  .game-over-panel {
+    @apply w-full max-w-[380px] border border-border bg-surface px-7 py-8 text-center;
+  }
+
+  .game-over-panel h1 {
+    @apply m-0 mb-3 text-[2rem] font-extrabold;
+  }
+
+  .game-over-win {
+    @apply text-success;
+  }
+
+  .game-over-lose {
+    @apply text-danger;
+  }
+
+  .game-over-panel p {
+    @apply my-2 text-base text-text-muted;
+  }
+
+  .game-over-actions {
+    @apply mt-6 flex flex-wrap justify-center gap-2.5;
+  }
+
+  .game-over-actions .btn {
+    @apply flex-[1_1_130px];
+  }
+
+  /* ----- Confirmation modal --------------------------------------------- */
+  .modal-overlay {
+    @apply fixed inset-0 z-[1050] flex items-center justify-center p-5;
+    background: rgba(2, 6, 23, 0.72);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  .modal-card {
+    @apply w-full max-w-[360px] border border-border bg-surface p-7 text-center;
+  }
+
+  .modal-message {
+    @apply mb-[22px] text-[1.05rem] font-semibold text-text;
+  }
+
+  .modal-actions {
+    @apply flex flex-wrap justify-center gap-2.5;
+  }
+
+  .modal-actions .btn {
+    @apply flex-[1_1_120px];
+  }
+
+  /* ----- Split touch controls (handheld layout) ------------------------- */
+  /* Hidden by default; shown on touch / small screens during play only. */
+  .touch-controls {
+    @apply hidden;
+  }
+
+  .touch-cluster {
+    @apply flex gap-4;
+  }
+
+  .touch-left {
+    @apply justify-start;
+  }
+
+  .touch-right {
+    @apply justify-end;
+  }
+
+  .dpad-btn {
+    @apply inline-flex h-16 w-16 cursor-pointer touch-none select-none items-center justify-center border border-border bg-surface text-[1.4rem] text-text;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .dpad-btn:active {
+    @apply border-accent bg-accent text-accent-contrast;
+    transform: scale(0.94);
+  }
+
+  /* ----- Toast ---------------------------------------------------------- */
+  .toast {
+    @apply pointer-events-none fixed left-1/2 z-[1100] border-l-4 border-info bg-[#1e293b] px-[18px] py-[13px] text-[0.88rem] font-medium text-[#f8fafc] opacity-0;
+    bottom: max(24px, env(safe-area-inset-bottom));
+    max-width: min(90vw, 420px);
+    transform: translate(-50%, 16px);
+    transition:
+      opacity 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .toast.show {
+    @apply opacity-100;
+    transform: translate(-50%, 0);
+  }
+
+  .toast.toast-error {
+    @apply border-l-danger;
+  }
+
+  .toast.toast-info {
+    @apply border-l-info;
+  }
+
+  /* ----- HUD power-up timers (flat chips with a depleting bar) ----------- */
+  .powerup-timers {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .pu-chip {
+    @apply inline-flex min-w-[64px] flex-col gap-[3px] border border-border bg-surface px-2 py-1;
+  }
+
+  .pu-label {
+    @apply text-[0.6rem] font-bold uppercase tracking-[0.04em] text-text-muted;
+  }
+
+  .pu-bar {
+    @apply block h-1 overflow-hidden bg-border;
+  }
+
+  .pu-fill {
+    @apply block h-full w-full bg-accent;
+    transition: width 0.1s linear;
+  }
+
+  .pu-speed_boost .pu-fill {
+    @apply bg-[#34d399];
+  }
+  .pu-invincibility .pu-fill {
+    @apply bg-[#e879f9];
+  }
+  .pu-pellet_multiplier .pu-fill {
+    @apply bg-[#38bdf8];
+  }
+}
+
+/* ==========================================================================
+   Responsive enhancements (mobile-first → up). Left as plain media queries;
+   unlayered so they win over the component layer.
+   ========================================================================== */
+@media (min-width: 640px) {
+  .container {
+    padding: 24px;
+  }
+
+  .game-title {
+    font-size: 2.25rem;
+  }
+
+  .form-container,
+  .waiting-container {
+    padding: 32px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container {
+    max-width: 840px;
+  }
+
+  .game-title {
+    font-size: 2.5rem;
+  }
+}
+
+/* Show the split touch controls on touch devices / small screens.
+   Markup lives inside #gameContainer, so they only appear during play. */
+@media (pointer: coarse), (max-width: 820px) {
+  .touch-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 12px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    z-index: 900;
+  }
+
+  /* Keep the in-game stats clear of the fixed controls. */
+  #gameContainer {
+    padding-bottom: 120px;
+  }
+}
+
+/* ==========================================================================
+   Immersive in-game layout — body gets .game-active during play.
+   The canvas fills the viewport; only a slim stats/Leave bar remains.
+   Plain CSS (unlayered) so it overrides the component layer, and the
+   !important beats the inline `display:block` set by showGameCanvas().
+   ========================================================================== */
+body.game-active {
+  overflow: hidden;
+}
+
+/* Hide the title + connection pill so the game area can take the screen. */
+body.game-active header {
+  display: none;
+}
+
+/* Break out of the centered, max-width container. */
+body.game-active .container {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* !important beats the inline `display: block` set by showGameCanvas(). */
+body.game-active #gameContainer {
+  display: flex !important;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Canvas area grows to fill all space above the slim bar; canvas stays centered. */
+body.game-active .game-canvas-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: center;
+  margin: 0;
+  padding: 8px;
+}
+
+/* JS sets the canvas to an explicit pixel size; don't let CSS shrink it. */
+body.game-active #gameCanvas {
+  max-width: none;
+}
+
+/* Slim top bar: actions (mute + Leave) on the left, stats on the right. */
+body.game-active .game-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+/* Drop the redundant "arrow keys" help line; keep the stats inline. */
+body.game-active .controls-info {
+  display: flex;
+  align-items: center;
+}
+
+body.game-active .controls-info p {
+  display: none;
+}
+
+body.game-active #exitGameButton {
+  margin-top: 0;
+}
+
+/* ----- Role-based HUD accent (Feature 4) -------------------------------
+   The local player's current role tints the in-game HUD: amber for Pac-Men,
+   cyan for ghosts. Updated live if the player is converted. */
+body.role-pacman {
+  --role-accent: var(--color-accent);
+}
+
+body.role-ghost {
+  --role-accent: #38bdf8;
+}
+
+body.game-active .game-controls {
+  border-bottom-color: var(--role-accent);
+}
+
+body.game-active .stat {
+  border-color: var(--role-accent);
+}
+
+body.game-active #gameScore {
+  color: var(--role-accent);
+}
+
+/* ==========================================================================
+   Game-feel polish — entrance transitions, an animated chomping title, a
+   connecting-pill pulse, and a score pop. Unlayered so they override the
+   component layer. Stays flat: motion only, no shadows or rounded corners.
+   ========================================================================== */
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.screen.animate-in {
+  animation: screen-in 0.22s ease-out both;
+}
+
+@keyframes item-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.room-item,
+.player-item {
+  animation: item-in 0.2s ease-out both;
+}
+
+/* The Pac-Man title dot chomps on a gentle loop (animates its clip-path). */
+@keyframes title-chomp {
+  0%,
+  100% {
+    clip-path: polygon(100% 22%, 48% 50%, 100% 78%, 100% 100%, 0 100%, 0 0, 100% 0);
+  }
+  50% {
+    clip-path: polygon(100% 48%, 48% 50%, 100% 52%, 100% 100%, 0 100%, 0 0, 100% 0);
+  }
+}
+
+.game-title-dot {
+  animation: title-chomp 0.55s ease-in-out infinite;
+}
+
+/* Pulse the status dot while connecting / disconnected to signal activity. */
+@keyframes pill-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+#connectionStatus.disconnected::before {
+  animation: pill-pulse 1s ease-in-out infinite;
+}
+
+/* Score bumps when it changes (main.ts re-adds .pop with a reflow). */
+@keyframes score-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+#gameScore {
+  display: inline-block;
+}
+
+#gameScore.pop {
+  animation: score-pop 0.28s ease-out;
+}
+
+/* Respect users who prefer reduced motion: keep the UI, drop the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .screen.animate-in,
+  .room-item,
+  .player-item,
+  .game-title-dot,
+  #connectionStatus.disconnected::before,
+  #gameScore.pop {
+    animation: none !important;
+  }
+}

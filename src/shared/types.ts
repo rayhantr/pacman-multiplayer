@@ -17,6 +17,8 @@ export type Direction = 'up' | 'down' | 'left' | 'right';
 
 export type GhostColor = 'red' | 'pink' | 'cyan' | 'orange';
 
+export type PacmanColor = 'amber' | 'lime' | 'sky' | 'rose' | 'violet';
+
 /** An active, time-limited effect applied to a player after collecting a power-up. */
 export interface PowerUpEffect {
   readonly type: PowerUpType;
@@ -33,10 +35,14 @@ export interface PlayerPowerUps {
 export interface Player {
   readonly id: string;
   readonly name: string;
-  readonly role: 'pacman' | 'ghost';
-  readonly ghostColor?: GhostColor | null;
-  /** Index of the ghost spawn slot (0-3); null for Pac-Man. Used for respawning. */
-  readonly spawnSlot: number | null;
+  /** Current role; mutates when a Pac-Man is caught and converted to a ghost. */
+  role: 'pacman' | 'ghost';
+  /** Role chosen in the lobby; restored on restart so converted players revert. */
+  lobbyRole: 'pacman' | 'ghost';
+  ghostColor?: GhostColor | null;
+  pacmanColor?: PacmanColor | null;
+  /** Index of the spawn slot for the current role; drives spawn/respawn position. */
+  spawnSlot: number | null;
   position: Position;
   direction: Direction;
   readonly speed: number;
@@ -72,6 +78,7 @@ export interface ClientPlayer {
   readonly name: string;
   readonly role: 'pacman' | 'ghost';
   readonly ghostColor?: GhostColor | null | undefined;
+  readonly pacmanColor?: PacmanColor | null | undefined;
   readonly x: number;
   readonly y: number;
   readonly direction: Direction;
@@ -102,11 +109,29 @@ export interface ServerToClientEvents {
   join_success: (data: {
     readonly player_id: string;
     readonly role: string;
+    readonly is_host: boolean;
     readonly game_state: ClientGameState;
   }) => void;
   join_failed: (data: { readonly reason: string }) => void;
   player_joined: (data: { readonly player: ClientPlayer; readonly can_start: boolean }) => void;
   player_left: (data: { readonly player_id: string }) => void;
+  /** A waiting player toggled their lobby role (Pac-Man <-> ghost). */
+  player_role_changed: (data: {
+    readonly player_id: string;
+    readonly role: 'pacman' | 'ghost';
+    readonly ghostColor?: GhostColor | null;
+    readonly pacmanColor?: PacmanColor | null;
+    readonly can_start: boolean;
+  }) => void;
+  /** The host tried to start without at least one of each role. */
+  start_failed: (data: { readonly reason: string }) => void;
+  /** A Pac-Man was caught and permanently converted into a ghost. */
+  player_converted: (data: {
+    readonly player_id: string;
+    readonly ghostColor: GhostColor | null;
+    readonly x: number;
+    readonly y: number;
+  }) => void;
   game_started: () => void;
   player_moved: (data: {
     readonly player_id: string;
@@ -129,6 +154,8 @@ export interface ServerToClientEvents {
     readonly position: string;
   }) => void;
   power_up_expired: (data: { readonly player_id: string; readonly type: PowerUpType }) => void;
+  /** A board boost vanished uncollected after its on-board lifetime. */
+  power_up_despawned: (data: { readonly position: string }) => void;
   game_over: (data: { readonly winner: string; readonly score: number }) => void;
   game_restarted: (data: { readonly game_state: ClientGameState }) => void;
   rooms_list: (data: { readonly rooms: readonly RoomInfo[] }) => void;
@@ -141,6 +168,7 @@ export interface ClientToServerEvents {
   create_room: (data: { readonly name: string; readonly roomName: string }) => void;
   list_rooms: () => void;
   player_move: (data: { readonly direction: Direction }) => void;
+  set_role: (data: { readonly role: 'pacman' | 'ghost' }) => void;
   start_game: () => void;
   restart_game: () => void;
   leave_game: () => void;
