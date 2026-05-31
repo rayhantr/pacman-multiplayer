@@ -75,10 +75,6 @@
     clip-path: polygon(100% 22%, 48% 50%, 100% 78%, 100% 100%, 0 100%, 0 0, 100% 0);
   }
 
-  .game-info {
-    @apply flex flex-wrap justify-center gap-2.5;
-  }
-
   .stat {
     @apply inline-flex min-w-[72px] flex-col items-center gap-0.5 border border-border bg-surface px-3.5 py-2 text-base font-bold;
   }
@@ -87,15 +83,16 @@
     @apply text-[0.68rem] font-medium uppercase not-italic tracking-[0.04em] text-text-muted;
   }
 
-  /* Connection status: main.ts overwrites className to just
-     connected/disconnected, so the base pill look lives on the ID. */
+  /* Connection status: a square status-dot icon stacked above the help button
+     in the bottom-right corner. main.ts overwrites className to just
+     connected/disconnected, so the base look lives on the ID. */
   #connectionStatus {
-    @apply inline-flex items-center border border-border bg-surface px-3.5 py-2 text-[0.78rem] font-semibold;
+    @apply flex h-10 w-10 items-center justify-center border border-border bg-surface;
   }
 
   #connectionStatus::before {
     content: '';
-    @apply mr-2 h-2 w-2 rounded-full bg-current;
+    @apply h-2.5 w-2.5 rounded-full bg-current;
   }
 
   #connectionStatus.connected {
@@ -298,6 +295,12 @@
     @apply fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2;
   }
 
+  /* Groups the tooltip + button so the hover-to-open zone excludes the
+     connection-status icon that also lives in the corner. */
+  .help-group {
+    @apply flex flex-col items-end gap-2;
+  }
+
   .help-button {
     @apply flex h-10 w-10 cursor-pointer items-center justify-center border border-border bg-surface text-lg font-bold text-text;
     transition:
@@ -310,10 +313,10 @@
   }
 
   .help-tooltip {
-    @apply hidden w-[280px] border border-border bg-surface p-[18px];
+    @apply hidden max-h-[70vh] w-[280px] overflow-y-auto border border-border bg-surface p-[18px];
   }
 
-  .help-corner:hover .help-tooltip,
+  .help-group:hover .help-tooltip,
   .help-tooltip.is-open {
     @apply block;
   }
@@ -340,7 +343,11 @@
   }
 
   .player-item {
-    @apply flex items-center justify-between gap-2.5 border border-border border-l-4 bg-surface-2 px-3.5 py-3 text-[0.9rem] font-semibold;
+    @apply flex items-center justify-between gap-2;
+  }
+
+  .player-name {
+    @apply border grow h-12 border-border border-l-4 bg-surface-2 px-3.5 py-2.5 text-[0.9rem] font-semibold truncate;
   }
 
   .player-pacman {
@@ -351,9 +358,21 @@
     @apply border-l-info bg-info-soft text-[#93c5fd];
   }
 
-  /* Local player's lobby role switch, sits inline in the player row. */
+  /* Role sprite shown on the right of each player row. */
+  .role-icon {
+    @apply size-12 shrink-0 border border-border object-contain;
+    image-rendering: pixelated; /* keep the sprite crisp if scaled */
+    transition: border-color 0.15s ease;
+  }
+
+  /* Local player's role icon doubles as the role-switch button. */
   .role-toggle {
-    @apply shrink-0 px-3 py-1.5 text-[0.78rem];
+    @apply flex shrink-0 cursor-pointer items-center justify-center bg-surface;
+  }
+
+  /* Hovering the switch button transitions the contained role icon's border. */
+  .role-toggle:hover .role-icon {
+    @apply border-accent;
   }
 
   #startButton {
@@ -561,7 +580,7 @@
     transition: width 0.1s linear;
   }
 
-  .pu-speed_boost .pu-fill {
+  .pu-speed .pu-fill {
     @apply bg-[#34d399];
   }
   .pu-invincibility .pu-fill {
@@ -569,6 +588,15 @@
   }
   .pu-pellet_multiplier .pu-fill {
     @apply bg-[#38bdf8];
+  }
+  .pu-magnet .pu-fill {
+    @apply bg-[#facc15];
+  }
+  .pu-phase .pu-fill {
+    @apply bg-[#c4b5fd];
+  }
+  .pu-frozen .pu-fill {
+    @apply bg-[#a5f3fc];
   }
 }
 

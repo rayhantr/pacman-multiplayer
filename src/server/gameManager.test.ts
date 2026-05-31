@@ -219,13 +219,19 @@ describe('GameManager — power-ups', () => {
     gm.handlePlayerMove(id, dir);
   }
 
-  it('spawns, collects, and applies the pellet multiplier (doubles pellet score)', () => {
-    // type index 2 (pellet_multiplier), position index 0 (cell 1,1 = Pac-Man's spawn)
-    const { gm, emits } = startedGame(queuedRandom([0.7, 0]));
+  // Pac-Man pool order: [speed_boost, invincibility, pellet_multiplier, pellet_magnet,
+  // pacman_freeze, pacman_phase] (6 items). Ghost pool: [ghost_speed, ghost_freeze,
+  // ghost_phase] (3). The first spawn always draws from the Pac-Man pool, the second
+  // from the ghost pool, etc. RNG values: [typeFraction, positionFraction] per spawn.
 
-    vi.advanceTimersByTime(30_000); // trigger the spawn timer
+  it('spawns, collects, and applies the pellet multiplier (doubles pellet score)', () => {
+    // pellet_multiplier is pool index 2 of 6 -> floor(0.4*6)=2; position index 0 -> (1,1)
+    const { gm, emits } = startedGame(queuedRandom([0.4, 0]));
+
+    vi.advanceTimersByTime(15_000); // trigger the (single) first spawn
     const spawned = lastEvent(emits, 'power_up_spawned');
     expect(spawned.type).toBe('pellet_multiplier');
+    expect(spawned.owner).toBe('pacman');
     expect(spawned.position).toBe('1,1');
 
     step(gm, 'pac', 'down'); // (1,1)->(1,2), pellet +10 (no multiplier yet)
@@ -234,27 +240,171 @@ describe('GameManager — power-ups', () => {
     const collected = lastEvent(emits, 'power_up_collected');
     expect(collected.type).toBe('pellet_multiplier');
     expect(collected.position).toBe('1,1');
+    // Self-effect is now driven by effect_applied (keyed by effect, not item).
+    expect(
+      eventsOf(emits, 'effect_applied').some(
+        e => e.player_id === 'pac' && e.effect === 'pellet_multiplier'
+      )
+    ).toBe(true);
 
     step(gm, 'pac', 'right'); // (1,1)->(2,1), fresh pellet x2 = +20 -> score 40
     const lastPellet = lastEvent(emits, 'pellet_collected');
     expect(lastPellet.score).toBe(40);
   });
 
-  it('expires an effect after its duration and emits power_up_expired', () => {
-    // type index 1 (invincibility), position index 0 (cell 1,1)
-    const { gm, emits } = startedGame(queuedRandom([0.4, 0]));
+  it('expires an effect after its duration and emits effect_expired', () => {
+    // invincibility is pool index 1 -> floor(0.25*6)=1; position 0 -> (1,1)
+    const { gm, emits } = startedGame(queuedRandom([0.25, 0]));
 
-    vi.advanceTimersByTime(30_000);
+    vi.advanceTimersByTime(15_000);
     step(gm, 'pac', 'down');
     step(gm, 'pac', 'up'); // collect invincibility at (1,1)
     expect(lastEvent(emits, 'power_up_collected').type).toBe('invincibility');
 
-    vi.advanceTimersByTime(6_000); // invincibility lasts 5s
-    gm.handlePlayerMove('pac', 'right'); // triggers expireEffects
+    vi.advanceTimersByTime(6_000); // invincibility lasts 5s -> a tick expires it
 
-    const expired = lastEvent(emits, 'power_up_expired');
+    const expired = lastEvent(emits, 'effect_expired');
     expect(expired.player_id).toBe('pac');
-    expect(expired.type).toBe('invincibility');
+    expect(expired.effect).toBe('invincibility');
+  });
+
+  it('emits effect_applied when a player collects a self-effect item', () => {
+    // speed_boost is pool index 0 -> floor(0*6)=0; position 0 -> (1,1)
+    const { gm, emits } = startedGame(queuedRandom([0, 0]));
+    vi.advanceTimersByTime(15_000);
+    step(gm, 'pac', 'down');
+    step(gm, 'pac', 'up'); // collect speed_boost at (1,1)
+
+    expect(lastEvent(emits, 'power_up_collected').type).toBe('speed_boost');
+    expect(
+      eventsOf(emits, 'effect_applied').some(e => e.player_id === 'pac' && e.effect === 'speed')
+    ).toBe(true);
+  });
+
+  it('does not let the opposing role collect a team-tagged item', () => {
+    // spawn 1: Pac-Man speed_boost at a far cell. spawn 2: ghost_speed at (1,1).
+    const { gm, emits } = startedGame(queuedRandom([0, 0.95, 0, 0]));
+    vi.advanceTimersByTime(15_000); // spawn 1 (Pac-Man item, far)
+    vi.advanceTimersByTime(15_000); // spawn 2 (ghost item at 1,1)
+    expect(eventsOf(emits, 'power_up_spawned').some(s => s.type === 'ghost_speed')).toBe(true);
+
+    emits.length = 0;
+    step(gm, 'pac', 'down'); // leave (1,1)
+    step(gm, 'pac', 'up'); // step back onto the ghost item — must NOT collect it
+
+    expect(eventsOf(emits, 'power_up_collected')).toHaveLength(0);
+    expect(eventsOf(emits, 'effect_applied').filter(e => e.player_id === 'pac')).toHaveLength(0);
+  });
+
+  it('freezes the opposing team, blocking their moves until it expires', () => {
+    // pacman_freeze is pool index 4 -> floor(0.7*6)=4; position 0 -> (1,1)
+    const { gm, emits } = startedGame(queuedRandom([0.7, 0]));
+    vi.advanceTimersByTime(15_000);
+    step(gm, 'pac', 'down');
+    step(gm, 'pac', 'up'); // collect pacman_freeze -> all ghosts frozen
+    expect(
+      eventsOf(emits, 'effect_applied').some(e => e.player_id === 'gh' && e.effect === 'frozen')
+    ).toBe(true);
+
+    // A frozen ghost cannot move.
+    emits.length = 0;
+    step(gm, 'gh', 'left');
+    expect(eventsOf(emits, 'player_moved').filter(m => m.player_id === 'gh')).toHaveLength(0);
+
+    // After the freeze elapses (2.5s), a tick clears it and the ghost moves again.
+    vi.advanceTimersByTime(3_000);
+    expect(
+      eventsOf(emits, 'effect_expired').some(e => e.player_id === 'gh' && e.effect === 'frozen')
+    ).toBe(true);
+    emits.length = 0;
+    step(gm, 'gh', 'left');
+    expect(eventsOf(emits, 'player_moved').some(m => m.player_id === 'gh')).toBe(true);
+  });
+
+  it('lets a phasing player move through walls and relocates it when phase ends in a wall', () => {
+    // pacman_phase is pool index 5 -> floor(0.9*6)=5; position 0 -> (1,1)
+    const { gm, emits } = startedGame(queuedRandom([0.9, 0]));
+    vi.advanceTimersByTime(15_000);
+    step(gm, 'pac', 'down');
+    step(gm, 'pac', 'up'); // collect pacman_phase at (1,1)
+
+    // (1,0) is a border wall; phasing lets Pac-Man step onto it.
+    step(gm, 'pac', 'up');
+    const wallMove = lastEvent(emits, 'player_moved');
+    expect(wallMove.player_id).toBe('pac');
+    expect(wallMove.x).toBe(1);
+    expect(wallMove.y).toBe(0);
+
+    // Let phase (3s) elapse while standing in the wall -> relocate to (1,1).
+    emits.length = 0;
+    vi.advanceTimersByTime(5_000);
+    expect(
+      eventsOf(emits, 'effect_expired').some(e => e.player_id === 'pac' && e.effect === 'phase')
+    ).toBe(true);
+    const relocate = eventsOf(emits, 'player_moved').find(
+      m => m.player_id === 'pac' && m.x === 1 && m.y === 1
+    );
+    expect(relocate).toBeDefined();
+  });
+
+  it('vacuums surrounding pellets while the magnet is active', () => {
+    // pellet_magnet is pool index 3 -> floor(0.55*6)=3; position 0 -> (1,1)
+    const { gm, emits } = startedGame(queuedRandom([0.55, 0]));
+    vi.advanceTimersByTime(15_000);
+    step(gm, 'pac', 'down');
+    step(gm, 'pac', 'up'); // collect pellet_magnet at (1,1)
+
+    emits.length = 0;
+    step(gm, 'pac', 'down'); // one move: magnet sweeps the surrounding ring
+    // More than one pellet collected in a single step proves the radius sweep.
+    expect(eventsOf(emits, 'pellet_collected').length).toBeGreaterThan(1);
+  });
+
+  it('lets a ghost collect ghost_speed and then move at the boosted cadence', () => {
+    // spawn 1: Pac-Man item (far). spawn 2: ghost_speed (index 0) at (1,1).
+    const { gm, emits } = startedGame(queuedRandom([0, 0.95, 0, 0]));
+    // Move Pac-Man off row 1 so the ghost can reach (1,1) without a collision.
+    step(gm, 'pac', 'down'); // (1,1)->(1,2)
+    step(gm, 'pac', 'down'); // (1,2)->(1,3)
+
+    vi.advanceTimersByTime(15_000); // spawn 1
+    vi.advanceTimersByTime(15_000); // spawn 2: ghost_speed at (1,1)
+    expect(eventsOf(emits, 'power_up_spawned').some(s => s.type === 'ghost_speed')).toBe(true);
+
+    // Walk the ghost left along row 1 onto (1,1) to collect it.
+    for (let i = 0; i < 20; i++) {
+      step(gm, 'gh', 'left');
+      if (eventsOf(emits, 'power_up_collected').some(c => c.type === 'ghost_speed')) {
+        break;
+      }
+    }
+    expect(
+      eventsOf(emits, 'effect_applied').some(e => e.player_id === 'gh' && e.effect === 'speed')
+    ).toBe(true);
+
+    // Boosted cooldown is 65ms; two moves 70ms apart are both accepted (base 130 would throttle).
+    emits.length = 0;
+    vi.advanceTimersByTime(70);
+    gm.handlePlayerMove('gh', 'right');
+    vi.advanceTimersByTime(70);
+    gm.handlePlayerMove('gh', 'right');
+    expect(eventsOf(emits, 'player_moved').filter(m => m.player_id === 'gh')).toHaveLength(2);
+  });
+
+  it('clears frozen (and other effects) on restart', () => {
+    const { gm, emits } = startedGame(queuedRandom([0.7, 0])); // pacman_freeze at (1,1)
+    vi.advanceTimersByTime(15_000);
+    step(gm, 'pac', 'down');
+    step(gm, 'pac', 'up'); // ghost frozen
+    expect(
+      eventsOf(emits, 'effect_applied').some(e => e.player_id === 'gh' && e.effect === 'frozen')
+    ).toBe(true);
+
+    gm.handleRestartGame('pac');
+    gm.handleStartGame('pac');
+    emits.length = 0;
+    step(gm, 'gh', 'left'); // ghost is reset -> no longer frozen
+    expect(eventsOf(emits, 'player_moved').some(m => m.player_id === 'gh')).toBe(true);
   });
 });
 
@@ -287,9 +437,9 @@ describe('GameManager — collisions & end states', () => {
   });
 
   it('lets an invincible Pac-Man eat a ghost instead of losing', () => {
-    // invincibility spawned at (1,1)
-    const { gm, emits } = startedGame(queuedRandom([0.4, 0]));
-    vi.advanceTimersByTime(30_000);
+    // invincibility is Pac-Man pool index 1 -> floor(0.25*6)=1; position 0 -> (1,1)
+    const { gm, emits } = startedGame(queuedRandom([0.25, 0]));
+    vi.advanceTimersByTime(15_000);
     step(gm, 'pac', 'down');
     step(gm, 'pac', 'up'); // collect invincibility, Pac-Man back at (1,1)
     emits.length = 0;
@@ -334,16 +484,16 @@ describe('GameManager — collisions & end states', () => {
   });
 
   it('removes a board boost that is never collected after its lifetime', () => {
-    // Spawn an invincibility (index 1) at the first empty cell.
-    const { emits } = startedGame(queuedRandom([0.4, 0]));
-    vi.advanceTimersByTime(30_000); // first spawn tick
-    expect(eventsOf(emits, 'power_up_spawned').length).toBe(1);
+    // spawn 1: Pac-Man invincibility at (1,1). spawn 2 (at 30s): ghost item at a far cell
+    // so it doesn't overwrite (1,1) before the first item ages out.
+    const { emits } = startedGame(queuedRandom([0.25, 0, 0, 0.95]));
+    vi.advanceTimersByTime(15_000); // first spawn
     const spawned = lastEvent(emits, 'power_up_spawned');
+    expect(spawned.position).toBe('1,1');
 
     emits.length = 0;
-    vi.advanceTimersByTime(15_000); // sit uncollected past POWER_UP_LIFETIME_MS
-    const despawned = lastEvent(emits, 'power_up_despawned');
-    expect(despawned.position).toBe(spawned.position);
+    vi.advanceTimersByTime(20_000); // sit uncollected past POWER_UP_LIFETIME_MS (20s)
+    expect(eventsOf(emits, 'power_up_despawned').some(d => d.position === '1,1')).toBe(true);
   });
 });
 

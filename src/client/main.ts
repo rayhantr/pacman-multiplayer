@@ -4,16 +4,16 @@ import type {
   ClientGameState,
   ClientToServerEvents,
   Direction,
-  PowerUpType,
+  EffectType,
   RoomInfo,
   ServerToClientEvents,
 } from '../shared/types';
-import { COLORS, POWERUP_DURATIONS } from './constants';
-import type { LocalGameState } from './types';
-import { Renderer } from './renderer';
-import { Effects, vibrate } from './effects';
-import { AudioController } from './audio';
-import { showToast, showConfirm } from './dialogs';
+import { COLORS } from './core/constants';
+import type { LocalGameState } from './core/types';
+import { Renderer } from './rendering/renderer';
+import { Effects, vibrate } from './rendering/effects';
+import { AudioController } from './ui/audio';
+import { showToast, showConfirm } from './ui/dialogs';
 
 class PacManGame {
   private socket!: Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -199,6 +199,7 @@ class PacManGame {
     this.socket.on('power_up_spawned', data => {
       this.gameState.powerUps[data.position] = {
         type: data.type,
+        owner: data.owner,
         spawnTime: Date.now(),
       };
     });
@@ -208,28 +209,40 @@ class PacManGame {
       delete this.gameState.powerUps[data.position];
     });
 
+    // Cosmetic only: drop the board sprite, play SFX, spark a burst. The actual
+    // effect on a player is driven by effect_applied (which also covers `frozen`,
+    // applied to a player OTHER than the collector).
     this.socket.on('power_up_collected', data => {
       delete this.gameState.powerUps[data.position];
       this.audio.playPowerUpSound();
-
-      const player = this.gameState.players[data.player_id];
-      if (player) {
-        const duration = POWERUP_DURATIONS[data.type];
-        player.activePowerUps = player.activePowerUps ?? {};
-        player.activePowerUps[data.type] = { endTime: Date.now() + duration, duration };
-        const [x, y] = data.position.split(',').map(Number);
-        this.effects.spawnBurst(x!, y!, COLORS.powerUp[data.type], 14);
-      }
+      const [x, y] = data.position.split(',').map(Number);
+      this.effects.spawnBurst(x!, y!, COLORS.powerUp[data.type], 14);
       vibrate(30);
-      this.updatePowerUpTimers();
     });
 
-    this.socket.on('power_up_expired', data => {
+    this.socket.on('effect_applied', data => {
+      const player = this.gameState.players[data.player_id];
+      if (player) {
+        const duration = Math.max(0, data.endTime - Date.now());
+        player.activePowerUps = player.activePowerUps ?? {};
+        player.activePowerUps[data.effect] = { endTime: data.endTime, duration };
+      }
+      if (data.player_id === this.gameState.playerId) {
+        if (data.effect === 'frozen') {
+          vibrate([30, 40, 30]);
+        }
+        this.updatePowerUpTimers();
+      }
+    });
+
+    this.socket.on('effect_expired', data => {
       const player = this.gameState.players[data.player_id];
       if (player?.activePowerUps) {
-        delete player.activePowerUps[data.type];
+        delete player.activePowerUps[data.effect];
       }
-      this.updatePowerUpTimers();
+      if (data.player_id === this.gameState.playerId) {
+        this.updatePowerUpTimers();
+      }
     });
 
     this.socket.on('game_over', data => {
@@ -490,7 +503,11 @@ class PacManGame {
     this.gameState.pellets = new Set(gameState.pellets);
     this.gameState.powerUps = {};
     for (const [position, powerUp] of Object.entries(gameState.powerUps)) {
-      this.gameState.powerUps[position] = { type: powerUp.type, spawnTime: powerUp.spawnTime };
+      this.gameState.powerUps[position] = {
+        type: powerUp.type,
+        owner: powerUp.owner,
+        spawnTime: powerUp.spawnTime,
+      };
     }
     this.gameState.score = gameState.score;
     this.gameState.pelletsRemaining = gameState.pelletsRemaining;
@@ -532,22 +549,37 @@ class PacManGame {
 
     playersList.textContent = '';
     Object.values(this.gameState.players).forEach(player => {
+      const isLocal = player.id === this.gameState.playerId;
+
       const playerDiv = document.createElement('div');
-      playerDiv.className = `player-item player-${player.role}`;
+      playerDiv.className = `player-item`;
 
-      const label = document.createElement('span');
-      label.textContent = `${player.name} (${player.role.toUpperCase()})`;
-      playerDiv.appendChild(label);
+      // The role icon conveys the role, so the name shows on its own.
+      const name = document.createElement('div');
+      name.className = `player-name player-${player.role}`;
+      name.textContent = isLocal ? `${player.name} (you)` : player.name;
+      playerDiv.appendChild(name);
 
-      // The local player gets a button to switch their lobby role.
-      if (player.id === this.gameState.playerId) {
+      // Icon shows the player's current role (Pac-Man or Ghost sprite).
+      const icon = document.createElement('img');
+      icon.className = 'role-icon';
+      icon.src = player.role === 'pacman' ? '/images/pacman-right.png' : '/images/ghost-red.png';
+      icon.alt = player.role === 'pacman' ? 'Pac-Man' : 'Ghost';
+
+      if (isLocal) {
+        // The local player's icon doubles as a button that switches their role.
         const target = player.role === 'pacman' ? 'ghost' : 'pacman';
         const toggle = document.createElement('button');
-        toggle.className = 'btn btn-secondary role-toggle';
+        toggle.className = 'role-toggle';
         toggle.type = 'button';
-        toggle.textContent = target === 'pacman' ? 'Be Pac-Man' : 'Be Ghost';
+        toggle.title = target === 'pacman' ? 'Switch to Pac-Man' : 'Switch to Ghost';
+        toggle.setAttribute('aria-label', toggle.title);
+        toggle.appendChild(icon);
         toggle.addEventListener('click', () => this.socket.emit('set_role', { role: target }));
         playerDiv.appendChild(toggle);
+      } else {
+        icon.setAttribute('aria-label', `${player.name} is a ${player.role}`);
+        playerDiv.appendChild(icon);
       }
 
       playersList.appendChild(playerDiv);
@@ -601,13 +633,16 @@ class PacManGame {
       return;
     }
 
-    const labels: Record<PowerUpType, string> = {
-      speed_boost: 'Speed',
+    const labels: Record<EffectType, string> = {
+      speed: 'Speed',
       invincibility: 'Shield',
       pellet_multiplier: '2× Score',
+      magnet: 'Magnet',
+      phase: 'Phase',
+      frozen: 'Frozen',
     };
 
-    (Object.keys(active) as PowerUpType[]).forEach(type => {
+    (Object.keys(active) as EffectType[]).forEach(type => {
       const effect = active[type]!;
       const chip = document.createElement('div');
       chip.className = `pu-chip pu-${type}`;
@@ -650,8 +685,10 @@ class PacManGame {
   private updateConnectionStatus(connected: boolean): void {
     const statusElement = document.getElementById('connectionStatus');
     if (statusElement) {
-      statusElement.textContent = connected ? 'Connected' : 'Disconnected';
+      const label = connected ? 'Connected' : 'Disconnected';
       statusElement.className = connected ? 'connected' : 'disconnected';
+      statusElement.title = label;
+      statusElement.setAttribute('aria-label', `Connection status: ${label.toLowerCase()}`);
     }
   }
 

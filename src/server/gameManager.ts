@@ -6,6 +6,8 @@ import type {
   ClientPlayer,
   PowerUp,
   PowerUpType,
+  EffectType,
+  Role,
   Position,
   Direction,
   GhostColor,
@@ -15,6 +17,7 @@ import type {
   InterServerEvents,
   SocketData,
 } from './types.js';
+import { EFFECT_DURATION_MS, ITEM_SELF_EFFECT, PACMAN_POWERUPS, GHOST_POWERUPS } from './types.js';
 
 type TypedServer = SocketIOServer<
   ClientToServerEvents,
@@ -33,16 +36,19 @@ const PACMAN_COLORS = ['amber', 'lime', 'sky', 'rose', 'violet'] as const;
 const BASE_MOVE_COOLDOWN_MS = 130;
 const BOOSTED_MOVE_COOLDOWN_MS = 65;
 
-const POWER_UP_SPAWN_INTERVAL_MS = 30_000;
-// How long an uncollected boost stays on the board before it vanishes.
-const POWER_UP_LIFETIME_MS = 15_000;
-// Cadence at which the power-up timer both sweeps expired boosts and spawns new ones.
+// Two team pools now alternate on each spawn, so halve the interval to keep each
+// team supplied at roughly the original one-item-per-30s cadence.
+const POWER_UP_SPAWN_INTERVAL_MS = 15_000;
+// How long an uncollected boost stays on the board before it vanishes. Team-gated
+// items linger a little longer so the owning role has time to reach them.
+const POWER_UP_LIFETIME_MS = 20_000;
+// Cadence at which the power-up timer sweeps expired board boosts, expires player
+// effects (so a phasing player can't get stranded in a wall by standing still),
+// and periodically spawns new boosts.
 const POWER_UP_TICK_MS = 1_000;
-const POWER_UP_DURATION_MS: Record<PowerUpType, number> = {
-  speed_boost: 10_000,
-  invincibility: 5_000,
-  pellet_multiplier: 10_000,
-};
+
+// Pac-Man's pellet-magnet vacuums every pellet within this Chebyshev radius.
+const MAGNET_RADIUS = 2;
 
 const PELLET_POINTS = 10;
 const GHOST_EATEN_POINTS = 200;
@@ -58,6 +64,8 @@ export class GameManager {
   private readonly notifyRoomsChanged: (() => void) | undefined;
   // Injectable RNG (defaults to Math.random) so power-up spawning is deterministic in tests.
   private readonly random: () => number;
+  // Alternates the spawn pool (Pac-Man vs ghost) so neither team starves.
+  private spawnCount = 0;
 
   constructor(
     io: SocketIOServer,
@@ -175,11 +183,7 @@ export class GameManager {
       position: this.getSpawnPosition(role, spawnSlot),
       direction: 'right',
       speed: isPacman ? 2 : 1.8,
-      powerUps: {
-        speedBoost: null,
-        invincibility: null,
-        pelletMultiplier: null,
-      },
+      powerUps: {},
       lastMoveAt: 0,
       isAlive: true,
     };
@@ -212,13 +216,19 @@ export class GameManager {
     // Drop any effects that have timed out before evaluating this move.
     this.expireEffects();
 
+    // A frozen player (caught in an opponent's freeze) cannot move.
+    if (player.powerUps.frozen) {
+      return;
+    }
+
     const now = Date.now();
     if (now - player.lastMoveAt < this.moveCooldownFor(player)) {
       return; // Throttled by the move cooldown.
     }
 
     const newPosition = this.calculateNewPosition(player.position, direction);
-    if (!this.isValidMove(newPosition)) {
+    // While phasing, walls are passable (board bounds still enforced).
+    if (!this.isValidMove(newPosition, !!player.powerUps.phase)) {
       return;
     }
 
@@ -226,16 +236,16 @@ export class GameManager {
     player.direction = direction;
     player.lastMoveAt = now;
 
+    const posKey = `${newPosition.x},${newPosition.y}`;
     let pelletCollected = false;
-    if (player.role === 'pacman') {
-      const posKey = `${newPosition.x},${newPosition.y}`;
 
+    if (player.role === 'pacman') {
       if (this.gameState.pellets.has(posKey)) {
         this.gameState.pellets.delete(posKey);
         this.gameState.pelletsRemaining--;
         pelletCollected = true;
 
-        const multiplier = player.powerUps.pelletMultiplier ? 2 : 1;
+        const multiplier = player.powerUps.pellet_multiplier ? 2 : 1;
         this.gameState.score += PELLET_POINTS * multiplier;
 
         this.io.to(this.roomId).emit('pellet_collected', {
@@ -250,17 +260,25 @@ export class GameManager {
         }
       }
 
-      // Power-up pickup (Pac-Man only).
-      const powerUp = this.gameState.powerUps.get(posKey);
-      if (powerUp) {
-        this.gameState.powerUps.delete(posKey);
-        this.applyPowerUp(player, powerUp.type);
-        this.io.to(this.roomId).emit('power_up_collected', {
-          player_id: playerId,
-          type: powerUp.type,
-          position: posKey,
-        });
+      // Pellet-magnet vacuums the surrounding ring (can also win the game).
+      if (player.powerUps.magnet) {
+        this.collectPelletsAround(player);
+        if (this.gameState.isGameOver) {
+          return;
+        }
       }
+    }
+
+    // Power-up pickup: either role may collect, but only items owned by their team.
+    const powerUp = this.gameState.powerUps.get(posKey);
+    if (powerUp?.owner === player.role) {
+      this.gameState.powerUps.delete(posKey);
+      this.applyPowerUp(player, powerUp.type);
+      this.io.to(this.roomId).emit('power_up_collected', {
+        player_id: playerId,
+        type: powerUp.type,
+        position: posKey,
+      });
     }
 
     this.checkCollisions();
@@ -407,7 +425,7 @@ export class GameManager {
       p.pacmanColor = colors.pacmanColor;
       p.position = this.getSpawnPosition(p.role, slot);
       p.direction = 'right';
-      p.powerUps = { speedBoost: null, invincibility: null, pelletMultiplier: null };
+      p.powerUps = {};
       p.lastMoveAt = 0;
       p.isAlive = true;
     });
@@ -507,57 +525,152 @@ export class GameManager {
     return newPos;
   }
 
-  private isValidMove(position: Position): boolean {
+  private isValidMove(position: Position, phasing = false): boolean {
     const { x, y } = position;
     const maze = this.gameState.maze;
 
     if (y < 0 || y >= maze.length || x < 0 || x >= (maze[0]?.length ?? 0)) {
-      return false;
+      return false; // Out of bounds — never passable, even while phasing.
     }
 
-    return maze[y]?.[x] === 0; // 0 = path, 1 = wall
+    return phasing || maze[y]?.[x] === 0; // 0 = path, 1 = wall
   }
 
   private moveCooldownFor(player: Player): number {
-    return player.powerUps.speedBoost ? BOOSTED_MOVE_COOLDOWN_MS : BASE_MOVE_COOLDOWN_MS;
+    return player.powerUps.speed ? BOOSTED_MOVE_COOLDOWN_MS : BASE_MOVE_COOLDOWN_MS;
+  }
+
+  /** First in-bounds walkable cell at/around a position (BFS over 4-neighbors). */
+  private nearestWalkable(from: Position): Position | null {
+    const seen = new Set<string>([`${from.x},${from.y}`]);
+    const queue: Position[] = [from];
+    while (queue.length) {
+      const cell = queue.shift()!;
+      if (this.isValidMove(cell)) {
+        return cell;
+      }
+      for (const next of [
+        { x: cell.x + 1, y: cell.y },
+        { x: cell.x - 1, y: cell.y },
+        { x: cell.x, y: cell.y + 1 },
+        { x: cell.x, y: cell.y - 1 },
+      ]) {
+        const key = `${next.x},${next.y}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          queue.push(next);
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Pellet-magnet: collect every pellet within Chebyshev radius of the Pac-Man. */
+  private collectPelletsAround(pacman: Player): void {
+    const multiplier = pacman.powerUps.pellet_multiplier ? 2 : 1;
+    for (let dy = -MAGNET_RADIUS; dy <= MAGNET_RADIUS; dy++) {
+      for (let dx = -MAGNET_RADIUS; dx <= MAGNET_RADIUS; dx++) {
+        if (dx === 0 && dy === 0) {
+          continue; // The current cell is handled by the direct pickup.
+        }
+        const key = `${pacman.position.x + dx},${pacman.position.y + dy}`;
+        if (!this.gameState.pellets.has(key)) {
+          continue;
+        }
+        this.gameState.pellets.delete(key);
+        this.gameState.pelletsRemaining--;
+        this.gameState.score += PELLET_POINTS * multiplier;
+        this.io.to(this.roomId).emit('pellet_collected', {
+          position: key,
+          score: this.gameState.score,
+          pellets_remaining: this.gameState.pelletsRemaining,
+        });
+        if (this.gameState.pelletsRemaining === 0) {
+          this.endGame('pacman');
+          return;
+        }
+      }
+    }
   }
 
   private applyPowerUp(player: Player, type: PowerUpType): void {
-    const endTime = Date.now() + POWER_UP_DURATION_MS[type];
-    switch (type) {
-      case 'speed_boost':
-        player.powerUps.speedBoost = { type, endTime };
-        break;
-      case 'invincibility':
-        player.powerUps.invincibility = { type, endTime };
-        break;
-      case 'pellet_multiplier':
-        player.powerUps.pelletMultiplier = { type, endTime };
-        break;
-      default: {
-        const _exhaustiveCheck: never = type;
-        return _exhaustiveCheck;
+    // The two freeze items don't grant a self-effect; they freeze the other team.
+    if (type === 'pacman_freeze' || type === 'ghost_freeze') {
+      const targetRole: Role = player.role === 'pacman' ? 'ghost' : 'pacman';
+      const endTime = Date.now() + EFFECT_DURATION_MS.frozen;
+      for (const target of this.players.values()) {
+        if (target.role !== targetRole) {
+          continue;
+        }
+        target.powerUps.frozen = { type: 'frozen', endTime };
+        this.io.to(this.roomId).emit('effect_applied', {
+          player_id: target.id,
+          effect: 'frozen',
+          endTime,
+        });
       }
+      return;
     }
+
+    const effect = ITEM_SELF_EFFECT[type];
+    if (!effect) {
+      return; // Defensive: every non-freeze item maps to a self-effect.
+    }
+    const endTime = Date.now() + EFFECT_DURATION_MS[effect];
+    player.powerUps[effect] = { type: effect, endTime };
+    this.io.to(this.roomId).emit('effect_applied', {
+      player_id: player.id,
+      effect,
+      endTime,
+    });
   }
 
   /** Clear any timed effects that have elapsed, notifying clients. */
   private expireEffects(): void {
     const now = Date.now();
-    const keys = ['speedBoost', 'invincibility', 'pelletMultiplier'] as const;
 
     for (const player of this.players.values()) {
-      for (const key of keys) {
+      for (const key of Object.keys(player.powerUps) as EffectType[]) {
         const effect = player.powerUps[key];
-        if (effect && effect.endTime <= now) {
-          player.powerUps[key] = null;
-          this.io.to(this.roomId).emit('power_up_expired', {
-            player_id: player.id,
-            type: effect.type,
-          });
+        if (!effect || effect.endTime > now) {
+          continue;
         }
+        delete player.powerUps[key];
+
+        // Phase ending while standing inside a wall: snap to the nearest walkable
+        // cell so the player isn't stranded.
+        if (key === 'phase' && !this.isValidMove(player.position)) {
+          const safe = this.nearestWalkable(player.position);
+          if (safe) {
+            player.position = safe;
+            this.io.to(this.roomId).emit('player_moved', {
+              player_id: player.id,
+              x: safe.x,
+              y: safe.y,
+              direction: player.direction,
+              score: this.gameState.score,
+              pellets_remaining: this.gameState.pelletsRemaining,
+              pellet_collected: false,
+            });
+          }
+        }
+
+        this.io.to(this.roomId).emit('effect_expired', {
+          player_id: player.id,
+          effect: key,
+        });
       }
     }
+  }
+
+  private countRole(role: Role): number {
+    let count = 0;
+    for (const p of this.players.values()) {
+      if (p.role === role) {
+        count++;
+      }
+    }
+    return count;
   }
 
   private checkCollisions(): void {
@@ -610,7 +723,7 @@ export class GameManager {
     player.spawnSlot = slot;
     player.ghostColor = GHOST_COLORS[slot] ?? null;
     player.pacmanColor = null;
-    player.powerUps = { speedBoost: null, invincibility: null, pelletMultiplier: null };
+    player.powerUps = {};
     player.position = this.getSpawnPosition('ghost', slot);
 
     this.io.to(this.roomId).emit('player_converted', {
@@ -627,11 +740,14 @@ export class GameManager {
 
   private startPowerUpTimer(): void {
     this.clearPowerUpTimer();
-    // One interval drives both jobs: sweep expired board boosts every tick, and
-    // spawn a fresh boost every POWER_UP_SPAWN_INTERVAL_MS.
+    this.spawnCount = 0;
+    // One interval drives three jobs each tick: sweep expired board boosts, expire
+    // player effects (so a phasing player can't get stranded in a wall by standing
+    // still), and spawn a fresh boost every POWER_UP_SPAWN_INTERVAL_MS.
     let sinceSpawn = 0;
     this.powerUpTimer = setInterval(() => {
       this.sweepExpiredBoardPowerUps();
+      this.expireEffects();
       sinceSpawn += POWER_UP_TICK_MS;
       if (sinceSpawn >= POWER_UP_SPAWN_INTERVAL_MS) {
         sinceSpawn = 0;
@@ -659,13 +775,23 @@ export class GameManager {
   }
 
   private spawnPowerUp(): void {
-    const powerUpTypes: readonly PowerUpType[] = [
-      'speed_boost',
-      'invincibility',
-      'pellet_multiplier',
-    ];
+    // Alternate pools so neither team starves; fall back to the other pool if a
+    // team is absent (e.g. the sole ghost disconnected while Pac-Men remain).
+    const hasGhosts = this.countRole('ghost') > 0;
+    const hasPacmen = this.countRole('pacman') > 0;
+    let owner: Role = this.spawnCount % 2 === 0 ? 'pacman' : 'ghost';
+    if (owner === 'ghost' && !hasGhosts) {
+      owner = 'pacman';
+    } else if (owner === 'pacman' && !hasPacmen) {
+      owner = 'ghost';
+    }
+    this.spawnCount++;
 
-    const type = powerUpTypes[Math.floor(this.random() * powerUpTypes.length)]!;
+    const pool = owner === 'pacman' ? PACMAN_POWERUPS : GHOST_POWERUPS;
+    if (pool.length === 0) {
+      return;
+    }
+    const type = pool[Math.floor(this.random() * pool.length)]!;
 
     const emptyPositions: Position[] = [];
     const maze = this.gameState.maze;
@@ -689,10 +815,10 @@ export class GameManager {
     const position = emptyPositions[Math.floor(this.random() * emptyPositions.length)]!;
     const posKey = `${position.x},${position.y}`;
 
-    const powerUp: PowerUp = { type, position, spawnTime: Date.now() };
+    const powerUp: PowerUp = { type, owner, position, spawnTime: Date.now() };
     this.gameState.powerUps.set(posKey, powerUp);
 
-    this.io.to(this.roomId).emit('power_up_spawned', { type, position: posKey });
+    this.io.to(this.roomId).emit('power_up_spawned', { type, owner, position: posKey });
   }
 
   private endGame(winner: 'pacman' | 'ghosts'): void {

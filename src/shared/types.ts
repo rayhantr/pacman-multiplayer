@@ -11,7 +11,91 @@ export interface Position {
   readonly y: number;
 }
 
-export type PowerUpType = 'speed_boost' | 'invincibility' | 'pellet_multiplier';
+export type Role = 'pacman' | 'ghost';
+
+/**
+ * Collectible board items. Each belongs to exactly one team's set (see
+ * {@link POWERUP_OWNER}); only that role can pick it up — the other walks over it.
+ */
+export type PowerUpType =
+  // Pac-Man set
+  | 'speed_boost'
+  | 'invincibility'
+  | 'pellet_multiplier'
+  | 'pellet_magnet'
+  | 'pacman_freeze'
+  | 'pacman_phase'
+  // Ghost set
+  | 'ghost_speed'
+  | 'ghost_freeze'
+  | 'ghost_phase';
+
+/** Which role may collect each board item. The other role passes over it harmlessly. */
+export const POWERUP_OWNER: Record<PowerUpType, Role> = {
+  speed_boost: 'pacman',
+  invincibility: 'pacman',
+  pellet_multiplier: 'pacman',
+  pellet_magnet: 'pacman',
+  pacman_freeze: 'pacman',
+  pacman_phase: 'pacman',
+  ghost_speed: 'ghost',
+  ghost_freeze: 'ghost',
+  ghost_phase: 'ghost',
+};
+
+/** The two spawn pools. Order matters for deterministic-RNG tests; keep the
+ *  three original Pac-Man items first. */
+export const PACMAN_POWERUPS: readonly PowerUpType[] = [
+  'speed_boost',
+  'invincibility',
+  'pellet_multiplier',
+  'pellet_magnet',
+  'pacman_freeze',
+  'pacman_phase',
+];
+export const GHOST_POWERUPS: readonly PowerUpType[] = [
+  'ghost_speed',
+  'ghost_freeze',
+  'ghost_phase',
+];
+
+/**
+ * Active, time-limited effects that live ON a player — distinct from the
+ * collectible item that grants them. The split exists because the two `*_freeze`
+ * items apply `frozen` to the *opposing* players (not the collector), and the two
+ * speed/phase item pairs collapse to a single effect each.
+ */
+export type EffectType =
+  | 'speed' // from speed_boost OR ghost_speed
+  | 'invincibility' // from invincibility
+  | 'pellet_multiplier' // from pellet_multiplier
+  | 'magnet' // from pellet_magnet
+  | 'phase' // from pacman_phase OR ghost_phase
+  | 'frozen'; // applied BY an opponent's *_freeze; never self-collected
+
+/**
+ * Self-effect granted to the collector of a given item. The two `*_freeze` items
+ * are intentionally absent — they apply `frozen` to opponents, handled imperatively.
+ */
+export const ITEM_SELF_EFFECT: Partial<Record<PowerUpType, EffectType>> = {
+  speed_boost: 'speed',
+  ghost_speed: 'speed',
+  invincibility: 'invincibility',
+  pellet_multiplier: 'pellet_multiplier',
+  pellet_magnet: 'magnet',
+  pacman_phase: 'phase',
+  ghost_phase: 'phase',
+};
+
+/** Single source of truth for effect durations (ms), mirrored by the client HUD. */
+export const EFFECT_DURATION_MS: Record<EffectType, number> = {
+  speed: 10_000,
+  invincibility: 5_000,
+  pellet_multiplier: 10_000,
+  magnet: 6_000,
+  phase: 3_000,
+  frozen: 2_500,
+};
 
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
@@ -19,17 +103,14 @@ export type GhostColor = 'red' | 'pink' | 'cyan' | 'orange';
 
 export type PacmanColor = 'amber' | 'lime' | 'sky' | 'rose' | 'violet';
 
-/** An active, time-limited effect applied to a player after collecting a power-up. */
+/** An active, time-limited effect applied to a player. */
 export interface PowerUpEffect {
-  readonly type: PowerUpType;
+  readonly type: EffectType;
   readonly endTime: number;
 }
 
-export interface PlayerPowerUps {
-  speedBoost: PowerUpEffect | null;
-  invincibility: PowerUpEffect | null;
-  pelletMultiplier: PowerUpEffect | null;
-}
+/** Generalized effect bag: effect-type -> active effect (absent when inactive). */
+export type PlayerPowerUps = Partial<Record<EffectType, PowerUpEffect>>;
 
 /** Server-side authoritative player record. */
 export interface Player {
@@ -55,6 +136,8 @@ export interface Player {
 /** A power-up sitting on the board waiting to be collected. */
 export interface PowerUp {
   readonly type: PowerUpType;
+  /** Denormalized from {@link POWERUP_OWNER} so the client can pick a team shape/color. */
+  readonly owner: Role;
   readonly position: Position;
   readonly spawnTime: number;
 }
@@ -147,13 +230,25 @@ export interface ServerToClientEvents {
     readonly score: number;
     readonly pellets_remaining: number;
   }) => void;
-  power_up_spawned: (data: { readonly type: PowerUpType; readonly position: string }) => void;
+  power_up_spawned: (data: {
+    readonly type: PowerUpType;
+    readonly owner: Role;
+    readonly position: string;
+  }) => void;
+  /** A board item was picked up by its owning role (cosmetic on the client). */
   power_up_collected: (data: {
     readonly player_id: string;
     readonly type: PowerUpType;
     readonly position: string;
   }) => void;
-  power_up_expired: (data: { readonly player_id: string; readonly type: PowerUpType }) => void;
+  /** A timed effect was applied to a player (self-collected, or `frozen` from an opponent). */
+  effect_applied: (data: {
+    readonly player_id: string;
+    readonly effect: EffectType;
+    readonly endTime: number;
+  }) => void;
+  /** A timed effect ended on a player. */
+  effect_expired: (data: { readonly player_id: string; readonly effect: EffectType }) => void;
   /** A board boost vanished uncollected after its on-board lifetime. */
   power_up_despawned: (data: { readonly position: string }) => void;
   game_over: (data: { readonly winner: string; readonly score: number }) => void;

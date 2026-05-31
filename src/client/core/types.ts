@@ -1,4 +1,4 @@
-import type { PowerUpType, RoomInfo } from '../shared/types';
+import type { EffectType, PowerUpType, Role, RoomInfo } from '../../shared/types';
 
 /** Client-local player record: the wire shape plus interpolation fields. */
 export interface RenderPlayer {
@@ -16,12 +16,13 @@ export interface RenderPlayer {
   targetX?: number;
   targetY?: number;
   lastMoveTime?: number;
-  // Active power-up effects on this player (type -> end timestamp), drives aura + HUD timers.
-  activePowerUps?: Partial<Record<PowerUpType, { endTime: number; duration: number }>>;
+  // Active effects on this player (effect -> end timestamp), drives aura + HUD timers.
+  activePowerUps?: Partial<Record<EffectType, { endTime: number; duration: number }>>;
 }
 
 export interface SpawnedPowerUp {
   type: PowerUpType;
+  owner: Role;
   spawnTime: number;
 }
 

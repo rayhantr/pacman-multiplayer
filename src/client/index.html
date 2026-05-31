@@ -22,9 +22,6 @@
     <div class="container">
       <header>
         <h1 class="game-title"><span class="game-title-dot" aria-hidden="true"></span>Pac-Man</h1>
-        <div class="game-info">
-          <span id="connectionStatus" class="status-pill disconnected">Connecting…</span>
-        </div>
       </header>
 
       <main>
@@ -145,31 +142,6 @@
             >
               Start game
             </button>
-
-            <div class="instructions">
-              <h3>How to play</h3>
-              <p>Use the <strong>arrow keys</strong> or the on-screen pad to move.</p>
-              <p><strong>Pac-Men:</strong> collect all pellets to win.</p>
-              <p>
-                <strong>Ghosts:</strong> catch a Pac-Man to turn it into a ghost. Win once every
-                Pac-Man has been caught.
-              </p>
-              <div class="power-ups">
-                <h4>Power-ups (spawn every 30s, vanish after 15s if uncollected)</h4>
-                <div class="power-up-item">
-                  <span class="power-up-icon speed" aria-label="Speed boost">●</span>
-                  <span>Speed boost (10 seconds)</span>
-                </div>
-                <div class="power-up-item">
-                  <span class="power-up-icon invincibility" aria-label="Invincibility">●</span>
-                  <span>Invincibility (5 seconds)</span>
-                </div>
-                <div class="power-up-item">
-                  <span class="power-up-icon multiplier" aria-label="Score multiplier">●</span>
-                  <span>Pellet multiplier (doubles score, 10 seconds)</span>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -226,23 +198,57 @@
     <!-- Non-blocking toast notifications -->
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-    <!-- How-it-works help, anchored to the bottom-right corner -->
+    <!-- Help (how it works + how to play), anchored to the bottom-right corner -->
     <div id="helpCorner" class="help-corner">
-      <div id="helpTooltip" class="help-tooltip" role="tooltip" aria-hidden="true">
+      <span
+        id="connectionStatus"
+        class="disconnected"
+        role="status"
+        title="Connecting…"
+        aria-label="Connection status: connecting"
+      ></span>
+      <div class="help-group">
+        <div id="helpTooltip" class="help-tooltip" role="tooltip" aria-hidden="true">
         <h3>How it works</h3>
         <p><strong>Join room:</strong> Enter the room code shared by the room creator.</p>
         <p><strong>Quick join:</strong> Join the default public room.</p>
         <p><strong>Create room:</strong> Make a new room with your custom name as the room code.</p>
+
+        <div class="instructions">
+          <h3>How to play</h3>
+          <p>Use the <strong>arrow keys</strong> or the on-screen pad to move.</p>
+          <p><strong>Pac-Men:</strong> collect all pellets to win.</p>
+          <p>
+            <strong>Ghosts:</strong> catch a Pac-Man to turn it into a ghost. Win once every
+            Pac-Man has been caught.
+          </p>
+          <div class="power-ups">
+            <h4>Power-ups (spawn every 30s, vanish after 15s if uncollected)</h4>
+            <div class="power-up-item">
+              <span class="power-up-icon speed" aria-label="Speed boost">●</span>
+              <span>Speed boost (10 seconds)</span>
+            </div>
+            <div class="power-up-item">
+              <span class="power-up-icon invincibility" aria-label="Invincibility">●</span>
+              <span>Invincibility (5 seconds)</span>
+            </div>
+            <div class="power-up-item">
+              <span class="power-up-icon multiplier" aria-label="Score multiplier">●</span>
+              <span>Pellet multiplier (doubles score, 10 seconds)</span>
+            </div>
+          </div>
+        </div>
+        </div>
+        <button
+          id="helpButton"
+          class="help-button"
+          type="button"
+          aria-label="Help: how it works and how to play"
+          aria-expanded="false"
+        >
+          ?
+        </button>
       </div>
-      <button
-        id="helpButton"
-        class="help-button"
-        type="button"
-        aria-label="How it works"
-        aria-expanded="false"
-      >
-        ?
-      </button>
     </div>
 
     <!-- Audio Elements -->

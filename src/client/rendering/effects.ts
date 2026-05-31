@@ -1,4 +1,4 @@
-import type { Particle } from './types';
+import type { Particle } from '../core/types';
 
 /**
  * Game-feel ("juice") state and logic: particle bursts, screenshake, and the
