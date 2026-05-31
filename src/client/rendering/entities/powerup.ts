@@ -1,24 +1,11 @@
 import { COLORS } from '../../core/constants';
 import type { LocalGameState } from '../../core/types';
-import type { PowerUpType } from '../../../shared/types';
-
-/** Tiny glyph drawn on each item so its kind is tellable at a glance. */
-const POWERUP_GLYPH: Record<PowerUpType, string> = {
-  speed_boost: '»',
-  ghost_speed: '»',
-  invincibility: '★',
-  pellet_multiplier: '×2',
-  pellet_magnet: 'U',
-  pacman_freeze: '❄',
-  ghost_freeze: '❄',
-  pacman_phase: '◌',
-  ghost_phase: '◌',
-};
+import { ICON_CANVAS_PATHS, POWERUP_EFFECT } from '../../ui/icons';
 
 /**
  * Draw spawned power-ups (glow is fine in the canvas world). The two team sets are
  * tellable apart by SHAPE — Pac-Man items are round orbs, ghost items are diamonds —
- * and by per-type color + glyph.
+ * and by per-type color + a vector glyph matching the HUD/legend icons.
  */
 export function drawPowerUps(
   ctx: CanvasRenderingContext2D,
@@ -33,8 +20,6 @@ export function drawPowerUps(
 
   const pulse = 0.8 + 0.2 * Math.sin(now / 180);
   ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
   for (const [position, powerUp] of entries) {
     const [x, y] = position.split(',').map(Number);
     const centerX = x! * cell + cell / 2;
@@ -62,11 +47,21 @@ export function drawPowerUps(
       ctx.fill();
     }
 
-    // Glyph: drawn dark and un-glowed on top so the kind reads clearly.
+    // Glyph: stroke the same icon as the HUD/legend, dark and un-glowed on top so
+    // the kind reads clearly. Paths are on a 24-unit grid (see ICON_CANVAS_PATHS).
+    const g = cell * 0.4; // glyph box size
+    ctx.save();
     ctx.shadowBlur = 0;
-    ctx.fillStyle = COLORS.path;
-    ctx.font = `bold ${Math.round(cell * 0.32)}px system-ui, sans-serif`;
-    ctx.fillText(POWERUP_GLYPH[powerUp.type], centerX, centerY + cell * 0.02);
+    ctx.translate(centerX - g / 2, centerY - g / 2);
+    ctx.scale(g / 24, g / 24);
+    ctx.strokeStyle = COLORS.path;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (const d of ICON_CANVAS_PATHS[POWERUP_EFFECT[powerUp.type]]) {
+      ctx.stroke(new Path2D(d));
+    }
+    ctx.restore();
   }
   ctx.restore();
 }

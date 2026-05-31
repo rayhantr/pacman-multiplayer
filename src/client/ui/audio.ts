@@ -3,6 +3,8 @@
  * mute-button UI. DOM-driven — the <audio> elements and #muteButton live in
  * index.html.
  */
+import { createIcon } from './icons';
+
 export class AudioController {
   // Mute state for all audio (background music + SFX); persisted in localStorage.
   private muted = false;
@@ -25,7 +27,7 @@ export class AudioController {
     this.getAudioElements().forEach(el => (el.muted = this.muted));
     const btn = document.getElementById('muteButton');
     if (btn) {
-      btn.textContent = this.muted ? '🔇' : '🔊';
+      btn.replaceChildren(createIcon(this.muted ? 'volume-off' : 'volume-on'));
       btn.setAttribute('aria-pressed', String(this.muted));
       btn.setAttribute('aria-label', this.muted ? 'Unmute sound' : 'Mute sound');
     }

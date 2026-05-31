@@ -1,4 +1,5 @@
 import { COLORS, MAZE_WIDTH, MAZE_HEIGHT } from '../core/constants';
+import { BASE_MOVE_COOLDOWN_MS, BOOSTED_MOVE_COOLDOWN_MS } from '../../shared/types';
 import type { Effects } from './effects';
 import type { LocalGameState, RenderPlayer } from '../core/types';
 import { drawMaze } from './entities/maze';
@@ -8,6 +9,7 @@ import { drawParticles } from './entities/particles';
 import { drawAura } from './entities/aura';
 import { drawPacman, drawDeath } from './entities/pacman';
 import { drawGhost } from './entities/ghost';
+import { drawSelfMarker } from './entities/selfMarker';
 
 /**
  * Owns the canvas, its 2D context, and the device-pixel cell size, and drives the
@@ -105,19 +107,23 @@ export class Renderer {
     drawPowerUps(this.ctx, this.CELL_SIZE, gameState.powerUps, now);
     effects.update(dt);
     drawParticles(this.ctx, this.CELL_SIZE, effects.particles);
-    this.drawPlayers(gameState.players, effects, now);
+    this.drawPlayers(gameState.players, effects, now, gameState.playerId);
 
     this.ctx.restore();
   }
 
   private updatePlayerInterpolation(players: Record<string, RenderPlayer>): void {
     const currentTime = Date.now();
-    const MOVEMENT_DURATION = 200; // ms
 
     Object.values(players).forEach(player => {
       if (player.lastMoveTime && player.targetX !== undefined && player.targetY !== undefined) {
+        // Match the server's per-player move cooldown so the sprite tracks its
+        // true cell (faster while speed-boosted) instead of trailing behind.
+        const duration = player.activePowerUps?.speed
+          ? BOOSTED_MOVE_COOLDOWN_MS
+          : BASE_MOVE_COOLDOWN_MS;
         const elapsed = currentTime - player.lastMoveTime;
-        const progress = Math.min(elapsed / MOVEMENT_DURATION, 1);
+        const progress = Math.min(elapsed / duration, 1);
         const easedProgress = this.easeOutCubic(progress);
 
         const startX = player.renderX ?? player.targetX;
@@ -147,7 +153,12 @@ export class Renderer {
    * matching entity drawer. While Pac-Man is being eaten, the death animation
    * owns the canvas players.
    */
-  private drawPlayers(players: Record<string, RenderPlayer>, effects: Effects, now: number): void {
+  private drawPlayers(
+    players: Record<string, RenderPlayer>,
+    effects: Effects,
+    now: number,
+    localId: string | null
+  ): void {
     if (effects.deathAnim) {
       if (drawDeath(this.ctx, this.CELL_SIZE, effects.deathAnim, now)) {
         effects.clearDeath();
@@ -183,6 +194,10 @@ export class Renderer {
         const ghostColor = player.ghostColor as keyof typeof COLORS.ghost;
         const color = COLORS.ghost[ghostColor] || COLORS.ghost.red;
         drawGhost(this.ctx, centerX, centerY, radius, color, player.direction, phasing, frozen);
+      }
+
+      if (localId && player.id === localId) {
+        drawSelfMarker(this.ctx, this.CELL_SIZE, centerX, centerY, radius, now);
       }
     });
   }

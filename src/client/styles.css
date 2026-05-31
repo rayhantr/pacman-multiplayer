@@ -33,6 +33,10 @@
   /* HUD accent driven by the local player's current role (set on <body>). */
   --role-accent: var(--color-accent);
 
+  /* Shared height for every element in the in-game top bar (stat pills,
+     mute/Leave buttons, power-up chips) so the strip reads as one row. */
+  --hud-h: 40px;
+
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
@@ -75,12 +79,18 @@
     clip-path: polygon(100% 22%, 48% 50%, 100% 78%, 100% 100%, 0 100%, 0 0, 100% 0);
   }
 
+  /* Stat pill: an icon + value sitting on one line. Fixed height + equal
+     min-width so every chip in the bar matches (see --hud-h). */
   .stat {
-    @apply inline-flex min-w-[72px] flex-col items-center gap-0.5 border border-border bg-surface px-3.5 py-2 text-base font-bold;
+    @apply inline-flex h-[var(--hud-h)] min-w-[92px] items-center justify-center gap-2 border border-border bg-surface px-3 text-base font-bold;
   }
 
-  .stat em {
-    @apply text-[0.68rem] font-medium uppercase not-italic tracking-[0.04em] text-text-muted;
+  .stat-icon {
+    @apply h-[18px] w-[18px] shrink-0 text-text-muted;
+  }
+
+  .stat-value {
+    @apply tabular-nums;
   }
 
   /* Connection status: a square status-dot icon stacked above the help button
@@ -301,8 +311,25 @@
     @apply flex flex-col items-end gap-2;
   }
 
+  /* Square 40×40 icon buttons stacked in the bottom-right corner (mute + help),
+     matching the connection-status pill so the corner stack reads as one column. */
+  .corner-btn {
+    @apply flex h-10 w-10 cursor-pointer items-center justify-center border border-border bg-surface text-text;
+    transition:
+      border-color 0.15s ease,
+      color 0.15s ease;
+  }
+
+  .corner-btn:hover {
+    @apply border-accent text-accent;
+  }
+
+  .corner-btn svg {
+    @apply h-5 w-5 shrink-0;
+  }
+
   .help-button {
-    @apply flex h-10 w-10 cursor-pointer items-center justify-center border border-border bg-surface text-lg font-bold text-text;
+    @apply flex h-10 w-10 cursor-pointer items-center justify-center border border-border bg-surface text-text;
     transition:
       border-color 0.15s ease,
       color 0.15s ease;
@@ -358,10 +385,10 @@
     @apply border-l-info bg-info-soft text-[#93c5fd];
   }
 
-  /* Role sprite shown on the right of each player row. */
+  /* Role icon (filled SVG) shown on the right of each player row; tinted by the
+     player's color via an inline `color` set in main.ts. */
   .role-icon {
-    @apply size-12 shrink-0 border border-border object-contain;
-    image-rendering: pixelated; /* keep the sprite crisp if scaled */
+    @apply size-12 shrink-0 border border-border p-1.5;
     transition: border-color 0.15s ease;
   }
 
@@ -373,6 +400,121 @@
   /* Hovering the switch button transitions the contained role icon's border. */
   .role-toggle:hover .role-icon {
     @apply border-accent;
+  }
+
+  .role-toggle:disabled {
+    @apply cursor-not-allowed opacity-40;
+  }
+
+  /* ----- Role chooser (join / create screens) --------------------------- */
+  .role-chooser {
+    @apply mb-[18px] grid grid-cols-2 gap-2;
+  }
+
+  .role-option {
+    @apply flex cursor-pointer items-center justify-center gap-2 border border-border bg-surface-2 px-3 py-2.5 text-[0.9rem] font-semibold text-text-muted;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+
+  /* Role-tinted icon, sized like the lobby role icons. No border of its own —
+     the chooser button already provides the frame (avoids a nested border). */
+  .role-option svg {
+    @apply size-8 shrink-0;
+  }
+
+  .role-option[data-role='pacman'] svg {
+    color: var(--color-accent);
+  }
+
+  .role-option[data-role='ghost'] svg {
+    color: #38bdf8;
+  }
+
+  .role-option:hover {
+    @apply border-[#475569];
+  }
+
+  .role-option.is-active {
+    @apply border-accent bg-accent-soft text-text;
+  }
+
+  /* ----- Color picker (waiting room) ------------------------------------ */
+  .color-picker-section,
+  .map-vote-section {
+    @apply mb-6;
+  }
+
+  .color-picker-section h3,
+  .map-vote-section h3 {
+    @apply mb-2.5 text-[0.92rem] font-bold text-text;
+  }
+
+  .color-picker {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .color-swatch {
+    @apply size-10.5 shrink-0 cursor-pointer border border-border;
+    transition:
+      border-color 0.15s ease,
+      transform 0.05s ease;
+  }
+
+  .color-swatch:hover {
+    @apply border-text;
+  }
+
+  .color-swatch.is-active {
+    @apply border-2 border-text;
+  }
+
+  /* ----- Map vote (waiting room) ---------------------------------------- */
+  .map-vote-list {
+    @apply grid grid-cols-2 gap-2;
+  }
+
+  .map-card {
+    @apply flex cursor-pointer flex-col items-start gap-1 border border-border border-l-4 bg-surface-2 px-3 py-2.5 text-left;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease;
+  }
+
+  .map-card:hover:not(:disabled) {
+    @apply border-[#475569];
+  }
+
+  .map-card.is-selected {
+    @apply border-l-accent bg-accent-soft;
+  }
+
+  .map-card.is-locked {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  .map-card-name {
+    @apply text-[0.95rem] font-bold text-text;
+  }
+
+  .map-card-meta {
+    @apply text-[0.78rem] text-text-muted;
+  }
+
+  .map-card-votes {
+    @apply flex w-full items-center gap-1 text-[0.82rem] font-semibold text-accent;
+  }
+
+  .vote-arrow {
+    @apply h-3.5 w-3.5 shrink-0;
+  }
+
+  /* "Leading" badge on the current vote-leader card (distinct from the amber
+     "your pick" highlight so both can show at once). */
+  .map-card-leader {
+    @apply ml-auto uppercase tracking-[0.04em] text-success;
   }
 
   #startButton {
@@ -401,18 +543,10 @@
     @apply mb-1.5 flex items-center gap-2.5 text-[0.84rem] text-text-muted;
   }
 
+  /* Legend glyph: an inline SVG sized like the HUD chip icons. Color comes from
+     the matching .pu-<effect> class so the legend matches the in-game chips. */
   .power-up-icon {
-    @apply w-[18px] text-center text-base;
-  }
-
-  .power-up-icon.speed {
-    @apply text-success;
-  }
-  .power-up-icon.invincibility {
-    @apply text-[#d946ef];
-  }
-  .power-up-icon.multiplier {
-    @apply text-[#0ea5e9];
+    @apply h-[18px] w-[18px] shrink-0;
   }
 
   /* ----- Game canvas ---------------------------------------------------- */
@@ -524,9 +658,13 @@
   }
 
   .dpad-btn {
-    @apply inline-flex h-16 w-16 cursor-pointer touch-none select-none items-center justify-center border border-border bg-surface text-[1.4rem] text-text;
+    @apply inline-flex h-16 w-16 cursor-pointer touch-none select-none items-center justify-center border border-border bg-surface text-text;
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  .dpad-btn svg {
+    @apply h-7 w-7 shrink-0;
   }
 
   .dpad-btn:active {
@@ -563,40 +701,43 @@
     @apply flex flex-wrap items-center gap-2;
   }
 
+  /* Horizontal pill: effect icon + a depleting bar, matching the bar height. */
   .pu-chip {
-    @apply inline-flex min-w-[64px] flex-col gap-[3px] border border-border bg-surface px-2 py-1;
+    @apply inline-flex h-[var(--hud-h)] min-w-[92px] items-center gap-2 border border-border bg-surface px-3;
   }
 
-  .pu-label {
-    @apply text-[0.6rem] font-bold uppercase tracking-[0.04em] text-text-muted;
+  .pu-icon {
+    @apply h-[18px] w-[18px] shrink-0;
   }
 
   .pu-bar {
-    @apply block h-1 overflow-hidden bg-border;
+    @apply block h-1.5 w-full min-w-[40px] flex-1 overflow-hidden bg-border;
   }
 
+  /* Fill + icon both inherit the chip's per-effect colour via currentColor. */
   .pu-fill {
-    @apply block h-full w-full bg-accent;
+    @apply block h-full w-full;
+    background: currentColor;
     transition: width 0.1s linear;
   }
 
-  .pu-speed .pu-fill {
-    @apply bg-[#34d399];
+  .pu-speed {
+    color: #34d399;
   }
-  .pu-invincibility .pu-fill {
-    @apply bg-[#e879f9];
+  .pu-invincibility {
+    color: #e879f9;
   }
-  .pu-pellet_multiplier .pu-fill {
-    @apply bg-[#38bdf8];
+  .pu-pellet_multiplier {
+    color: #38bdf8;
   }
-  .pu-magnet .pu-fill {
-    @apply bg-[#facc15];
+  .pu-magnet {
+    color: #facc15;
   }
-  .pu-phase .pu-fill {
-    @apply bg-[#c4b5fd];
+  .pu-phase {
+    color: #c4b5fd;
   }
-  .pu-frozen .pu-fill {
-    @apply bg-[#a5f3fc];
+  .pu-frozen {
+    color: #a5f3fc;
   }
 }
 
@@ -698,7 +839,8 @@ body.game-active #gameCanvas {
   max-width: none;
 }
 
-/* Slim top bar: actions (mute + Leave) on the left, stats on the right. */
+/* Slim top bar laid out in three zones: actions (Leave) on the left,
+   power-up timers centred, stats on the right. */
 body.game-active .game-controls {
   flex: 0 0 auto;
   display: flex;
@@ -708,6 +850,13 @@ body.game-active .game-controls {
   padding: 8px 12px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+}
+
+/* Centre zone: grows to fill the gap and keeps its chips centred. Collapses to
+   empty whitespace when no power-ups are active. */
+body.game-active .powerup-timers {
+  flex: 1 1 auto;
+  justify-content: center;
 }
 
 /* Drop the redundant "arrow keys" help line; keep the stats inline. */
@@ -720,8 +869,27 @@ body.game-active .controls-info p {
   display: none;
 }
 
+/* Match the Leave button to the shared HUD height and square it down to its
+   icon (overrides .btn padding). The mute button now lives in the help corner. */
+body.game-active .controls-actions .btn {
+  height: var(--hud-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 body.game-active #exitGameButton {
+  width: var(--hud-h);
+  padding-left: 0;
+  padding-right: 0;
   margin-top: 0;
+}
+
+body.game-active #exitGameButton svg {
+  width: 20px;
+  height: 20px;
 }
 
 /* ----- Role-based HUD accent (Feature 4) -------------------------------
@@ -743,7 +911,13 @@ body.game-active .stat {
   border-color: var(--role-accent);
 }
 
+/* Emphasise the score chip: its icon + value carry the role accent, while the
+   pellets/players icons stay muted. */
 body.game-active #gameScore {
+  color: var(--role-accent);
+}
+
+body.game-active .stat[aria-label='Score'] .stat-icon {
   color: var(--role-accent);
 }
 

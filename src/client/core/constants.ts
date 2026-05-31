@@ -22,12 +22,23 @@ export const COLORS = {
     sky: '#38bdf8',
     rose: '#fb7185',
     violet: '#c084fc',
+    teal: '#2dd4bf',
+    yellow: '#facc15',
+    indigo: '#818cf8',
+    fuchsia: '#e879f9',
+    blue: '#60a5fa',
   },
   ghost: {
     red: '#fb7185',
     pink: '#f0abfc',
     cyan: '#38bdf8',
     orange: '#fb923c',
+    green: '#4ade80',
+    violet: '#c084fc',
+    yellow: '#facc15',
+    indigo: '#818cf8',
+    fuchsia: '#e879f9',
+    blue: '#60a5fa',
   },
   /** Per-item colors for the board orbs/diamonds (keyed by the 9 PowerUpType item types). */
   powerUp: {

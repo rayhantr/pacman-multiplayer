@@ -5,15 +5,19 @@ import type {
   ClientToServerEvents,
   Direction,
   EffectType,
+  Role,
   RoomInfo,
   ServerToClientEvents,
 } from '../shared/types';
+import { MAX_GHOSTS, MAX_PACMAN } from '../shared/types';
+import { DEFAULT_MAP_ID, isMapLocked, mapInfos } from '../shared/maps';
 import { COLORS } from './core/constants';
 import type { LocalGameState } from './core/types';
 import { Renderer } from './rendering/renderer';
 import { Effects, vibrate } from './rendering/effects';
 import { AudioController } from './ui/audio';
 import { showToast, showConfirm } from './ui/dialogs';
+import { createIcon, hydrateIcons } from './ui/icons';
 
 class PacManGame {
   private socket!: Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -31,7 +35,18 @@ class PacManGame {
   // True when this client owns the room (first joiner): controls start/restart.
   private isHost = false;
 
+  // Role chosen on the join/create screen (re-pickable in the lobby).
+  private selectedRole: Role = 'pacman';
+
+  // Lobby map-vote state, mirrored from the server's lobby_map_state broadcasts.
+  private mapVotes: Record<string, number> = {};
+  // The leading map (server-decided) — the board that will actually play.
+  private selectedMapId: string = DEFAULT_MAP_ID;
+  // This client's own vote (null until they pick), shown as the "your pick" highlight.
+  private myMapVote: string | null = null;
+
   constructor() {
+    hydrateIcons(); // swap the static [data-icon] placeholders for inline SVG
     this.initializeGameState();
     this.connectToServer();
     this.setupEventListeners();
@@ -89,6 +104,8 @@ class PacManGame {
     this.socket.on('join_success', data => {
       this.gameState.playerId = data.player_id;
       this.gameState.playerRole = data.role;
+      // The server may have overridden the requested role to honor caps.
+      this.selectedRole = data.role === 'ghost' ? 'ghost' : 'pacman';
       this.isHost = data.is_host;
       this.updateGameState(data.game_state);
       this.showWaitingRoom();
@@ -106,12 +123,14 @@ class PacManGame {
     this.socket.on('player_joined', data => {
       this.gameState.players[data.player.id] = { ...data.player };
       this.updatePlayersDisplay();
+      this.updateMapVotePanel();
       this.updateStartButton(data.can_start);
     });
 
     this.socket.on('player_left', data => {
       delete this.gameState.players[data.player_id];
       this.updatePlayersDisplay();
+      this.updateMapVotePanel();
     });
 
     this.socket.on('player_role_changed', data => {
@@ -123,9 +142,33 @@ class PacManGame {
       }
       if (data.player_id === this.gameState.playerId) {
         this.gameState.playerRole = data.role;
+        this.renderColorPicker(); // the available palette changed with the role
       }
       this.updatePlayersDisplay();
       this.updateStartButton(data.can_start);
+    });
+
+    this.socket.on('player_color_changed', data => {
+      const player = this.gameState.players[data.player_id];
+      if (player) {
+        player.ghostColor = data.ghostColor ?? null;
+        player.pacmanColor = data.pacmanColor ?? null;
+      }
+      if (data.player_id === this.gameState.playerId) {
+        this.renderColorPicker();
+      }
+      // Re-render the player list so the role icon reflects the new color tint.
+      this.updatePlayersDisplay();
+    });
+
+    this.socket.on('role_change_failed', data => {
+      showToast(data.reason, 'error');
+    });
+
+    this.socket.on('lobby_map_state', data => {
+      this.mapVotes = { ...data.votes };
+      this.selectedMapId = data.selectedMapId;
+      this.updateMapVotePanel();
     });
 
     this.socket.on('start_failed', data => {
@@ -156,7 +199,9 @@ class PacManGame {
       vibrate(40);
     });
 
-    this.socket.on('game_started', () => {
+    this.socket.on('game_started', data => {
+      // The board (selected map, spawns, colors) is finalized at start.
+      this.updateGameState(data.game_state);
       this.gameState.gameStarted = true;
       this.showGameCanvas();
       this.audio.playBackgroundMusic();
@@ -306,7 +351,10 @@ class PacManGame {
           break;
       }
 
-      if (direction) {
+      // Only act on arrows during active play, so menu/text inputs keep their
+      // native caret navigation. Auto-repeat (holding a key) is intentional and
+      // mirrors the touch D-pad; the server move cooldown rate-limits it.
+      if (direction && this.gameState.gameStarted && !this.gameState.gameOver) {
         event.preventDefault();
         this.sendMove(direction);
       }
@@ -324,6 +372,8 @@ class PacManGame {
     this.bindHold('dpadDown', 'down');
     this.bindHold('dpadLeft', 'left');
     this.bindHold('dpadRight', 'right');
+
+    this.setupRoleChoosers();
 
     this.bindClick('joinRoomButton', () => this.joinRoomByCode());
     this.bindClick('quickJoinButton', () => this.quickJoin());
@@ -370,6 +420,31 @@ class PacManGame {
   private bindClick(elementId: string, handler: () => void): void {
     const el = document.getElementById(elementId);
     el?.addEventListener('click', handler);
+  }
+
+  /** Wire the Pac-Man/Ghost segmented choosers on the join and create screens. */
+  private setupRoleChoosers(): void {
+    ['joinRoleChooser', 'createRoleChooser'].forEach(id => {
+      const chooser = document.getElementById(id);
+      chooser?.querySelectorAll<HTMLButtonElement>('.role-option').forEach(button => {
+        button.addEventListener('click', () => {
+          const role = button.dataset['role'];
+          if (role === 'pacman' || role === 'ghost') {
+            this.setSelectedRole(role);
+          }
+        });
+      });
+    });
+    this.setSelectedRole(this.selectedRole); // paint the initial selection
+  }
+
+  /** Record the chosen join role and reflect it on both choosers' active state. */
+  private setSelectedRole(role: Role): void {
+    this.selectedRole = role;
+    document.querySelectorAll<HTMLButtonElement>('.role-chooser .role-option').forEach(button => {
+      button.classList.toggle('is-active', button.dataset['role'] === role);
+      button.setAttribute('aria-pressed', String(button.dataset['role'] === role));
+    });
   }
 
   /**
@@ -486,7 +561,11 @@ class PacManGame {
     }
 
     const finalRoomCode = roomCode ?? this.gameState.selectedRoom ?? 'default';
-    this.socket.emit('join_game', { name: playerName, roomCode: finalRoomCode });
+    this.socket.emit('join_game', {
+      name: playerName,
+      roomCode: finalRoomCode,
+      role: this.selectedRole,
+    });
   }
 
   public startGame(): void {
@@ -515,12 +594,18 @@ class PacManGame {
 
   private showWaitingRoom(): void {
     this.hideAllScreens();
+    // Drop any lingering game-over overlay (e.g. a non-host returning to the
+    // lobby via the server's game_restarted broadcast).
+    document.getElementById('gameOverScreen')?.remove();
     this.revealScreen('waitingRoom');
     this.updatePlayersDisplay();
+    this.renderColorPicker();
+    this.updateMapVotePanel();
   }
 
   private showGameCanvas(): void {
     this.hideAllScreens();
+    document.getElementById('gameOverScreen')?.remove();
     const gameContainer = document.getElementById('gameContainer');
     if (gameContainer) {
       gameContainer.style.display = 'block';
@@ -560,11 +645,16 @@ class PacManGame {
       name.textContent = isLocal ? `${player.name} (you)` : player.name;
       playerDiv.appendChild(name);
 
-      // Icon shows the player's current role (Pac-Man or Ghost sprite).
-      const icon = document.createElement('img');
-      icon.className = 'role-icon';
-      icon.src = player.role === 'pacman' ? '/images/pacman-right.png' : '/images/ghost-red.png';
-      icon.alt = player.role === 'pacman' ? 'Pac-Man' : 'Ghost';
+      // Icon shows the player's current role as a filled SVG, tinted by the
+      // player's chosen color (falling back to the role's default).
+      const icon = createIcon(player.role, 'role-icon', { filled: true });
+      if (player.role === 'pacman') {
+        const c = player.pacmanColor as keyof typeof COLORS.pacmanColors;
+        icon.style.color = COLORS.pacmanColors[c] ?? COLORS.pacman;
+      } else {
+        const c = player.ghostColor as keyof typeof COLORS.ghost;
+        icon.style.color = COLORS.ghost[c] ?? COLORS.ghost.red;
+      }
 
       if (isLocal) {
         // The local player's icon doubles as a button that switches their role.
@@ -572,7 +662,15 @@ class PacManGame {
         const toggle = document.createElement('button');
         toggle.className = 'role-toggle';
         toggle.type = 'button';
-        toggle.title = target === 'pacman' ? 'Switch to Pac-Man' : 'Switch to Ghost';
+        // Disable the switch when the target role is already at its cap.
+        const targetFull =
+          this.countRole(target) >= (target === 'pacman' ? MAX_PACMAN : MAX_GHOSTS);
+        toggle.disabled = targetFull;
+        toggle.title = targetFull
+          ? `${target === 'pacman' ? 'Pac-Men' : 'Ghosts'} are full`
+          : target === 'pacman'
+            ? 'Switch to Pac-Man'
+            : 'Switch to Ghost';
         toggle.setAttribute('aria-label', toggle.title);
         toggle.appendChild(icon);
         toggle.addEventListener('click', () => this.socket.emit('set_role', { role: target }));
@@ -583,6 +681,110 @@ class PacManGame {
       }
 
       playersList.appendChild(playerDiv);
+    });
+  }
+
+  /** Count lobby players currently in a given role. */
+  private countRole(role: Role): number {
+    return Object.values(this.gameState.players).filter(p => p.role === role).length;
+  }
+
+  /** Render swatches of the local player's current-role palette (Feature 4). */
+  private renderColorPicker(): void {
+    const container = document.getElementById('colorPicker');
+    if (!container) {
+      return;
+    }
+    container.textContent = '';
+
+    const role = this.gameState.playerRole;
+    if (role !== 'pacman' && role !== 'ghost') {
+      return;
+    }
+    const me = this.gameState.playerId ? this.gameState.players[this.gameState.playerId] : null;
+    const palette = role === 'pacman' ? COLORS.pacmanColors : COLORS.ghost;
+    const current = role === 'pacman' ? me?.pacmanColor : me?.ghostColor;
+
+    (Object.entries(palette) as [string, string][]).forEach(([name, hex]) => {
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
+      swatch.className = 'color-swatch';
+      swatch.style.backgroundColor = hex;
+      swatch.title = name;
+      swatch.setAttribute('aria-label', `Color ${name}`);
+      if (name === current) {
+        swatch.classList.add('is-active');
+      }
+      swatch.addEventListener('click', () => this.socket.emit('set_color', { color: name }));
+      container.appendChild(swatch);
+    });
+  }
+
+  /** Render the map-vote cards: vote counts, lock state, this client's own pick
+   *  (highlighted), and the current leader (badged). (Feature 1) */
+  private updateMapVotePanel(): void {
+    const container = document.getElementById('mapVoteList');
+    if (!container) {
+      return;
+    }
+    container.textContent = '';
+
+    const playerCount = Object.keys(this.gameState.players).length;
+
+    mapInfos().forEach(info => {
+      const locked = isMapLocked(info, playerCount);
+      const votes = this.mapVotes[info.id] ?? 0;
+
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'map-card';
+      card.setAttribute('role', 'listitem');
+      // Your own pick is highlighted; the current leader (server-decided) is badged.
+      if (info.id === this.myMapVote && !locked) {
+        card.classList.add('is-selected');
+      }
+      const isLeader = info.id === this.selectedMapId && !locked;
+      if (isLeader) {
+        card.classList.add('is-leading');
+      }
+      if (locked) {
+        card.classList.add('is-locked');
+        card.disabled = true;
+      }
+
+      const name = document.createElement('div');
+      name.className = 'map-card-name';
+      name.textContent = info.name;
+
+      const meta = document.createElement('div');
+      meta.className = 'map-card-meta';
+      meta.textContent = `${info.size === 'small' ? 'Small' : 'Large'} · ${info.width}×${info.height} · max ${info.maxPlayers}`;
+
+      const tally = document.createElement('div');
+      tally.className = 'map-card-votes';
+      if (locked) {
+        tally.textContent = 'Too many players';
+      } else {
+        tally.append(createIcon('arrow-up', 'vote-arrow'), document.createTextNode(` ${votes}`));
+        if (isLeader) {
+          // The leader marker sits at the end of the vote-count line.
+          const badge = document.createElement('span');
+          badge.className = 'map-card-leader';
+          badge.textContent = 'Leading';
+          tally.append(badge);
+        }
+      }
+
+      card.append(name, meta, tally);
+      if (!locked) {
+        // Record the local pick for an instant highlight, then sync the vote.
+        card.addEventListener('click', () => {
+          this.myMapVote = info.id;
+          this.socket.emit('vote_map', { mapId: info.id });
+          this.updateMapVotePanel();
+        });
+      }
+      container.appendChild(card);
     });
   }
 
@@ -633,6 +835,9 @@ class PacManGame {
       return;
     }
 
+    // Human-readable name (used for the accessible label / tooltip) plus a
+    // small inline-SVG glyph per effect. SVGs inherit the chip's per-effect
+    // colour via currentColor (see the .pu-<type> rules in styles.css).
     const labels: Record<EffectType, string> = {
       speed: 'Speed',
       invincibility: 'Shield',
@@ -646,10 +851,12 @@ class PacManGame {
       const effect = active[type]!;
       const chip = document.createElement('div');
       chip.className = `pu-chip pu-${type}`;
+      chip.setAttribute('aria-label', labels[type]);
+      chip.title = labels[type];
 
-      const label = document.createElement('span');
-      label.className = 'pu-label';
-      label.textContent = labels[type];
+      // The glyph (from the shared icon registry) inherits the chip's per-effect
+      // colour via currentColor (see the .pu-<type> rules in styles.css).
+      const icon = createIcon(type, 'pu-icon');
 
       const bar = document.createElement('span');
       bar.className = 'pu-bar';
@@ -659,7 +866,7 @@ class PacManGame {
       fill.dataset.duration = String(effect.duration);
       bar.appendChild(fill);
 
-      chip.append(label, bar);
+      chip.append(icon, bar);
       container.appendChild(chip);
     });
   }
@@ -692,13 +899,16 @@ class PacManGame {
     }
   }
 
-  private showGameOverScreen(winner: string, score: number): void {
+  private showGameOverScreen(winner: 'pacman' | 'ghosts', score: number): void {
     const gameContainer = document.getElementById('gameContainer');
     if (gameContainer) {
       gameContainer.style.display = 'none';
     }
 
-    const isWinner = winner === this.gameState.playerRole;
+    // Map the player's role to its team so ghosts ('ghost') match the winner
+    // token ('ghosts') and correctly see the win screen.
+    const myTeam = this.gameState.playerRole === 'pacman' ? 'pacman' : 'ghosts';
+    const isWinner = winner === myTeam;
 
     const overlay = document.createElement('div');
     overlay.id = 'gameOverScreen';
@@ -880,6 +1090,10 @@ class PacManGame {
   private showJoinForm(): void {
     this.hideAllScreens();
     this.revealScreen('joinForm');
+    // Focus the name field once the screen is on-screen (it's hidden at load, so
+    // the HTML autofocus attribute wouldn't fire on reveal).
+    const nameInput = document.getElementById('playerName') as HTMLInputElement | null;
+    requestAnimationFrame(() => nameInput?.focus());
   }
 
   /** Show a screen with a replayed fade/slide entrance (display:block + animate-in). */
@@ -928,7 +1142,7 @@ class PacManGame {
       return;
     }
 
-    this.socket.emit('create_room', { name: hostName, roomName });
+    this.socket.emit('create_room', { name: hostName, roomName, role: this.selectedRole });
   }
 
   public joinSpecificRoom(roomCode: string): void {

@@ -89,6 +89,21 @@
                 required
               />
             </div>
+            <div
+              class="role-chooser"
+              id="createRoleChooser"
+              role="group"
+              aria-label="Choose your role"
+            >
+              <button type="button" class="role-option" data-role="pacman">
+                <span data-icon="pacman" data-icon-filled></span>
+                <span>Pac-Man</span>
+              </button>
+              <button type="button" class="role-option" data-role="ghost">
+                <span data-icon="ghost" data-icon-filled></span>
+                <span>Ghost</span>
+              </button>
+            </div>
             <div class="form-actions">
               <button id="createRoomConfirmButton" class="btn btn-primary" type="button">
                 Create room
@@ -102,7 +117,7 @@
         <div id="joinForm" class="screen" style="display: none">
           <div class="form-container">
             <h2>Join game</h2>
-            <p>First player becomes Pac-Man, others become ghosts (max 4 ghosts).</p>
+            <p>Pick a side, then join. You can switch in the waiting room.</p>
             <div class="input-group">
               <input
                 type="text"
@@ -112,6 +127,21 @@
                 autocomplete="off"
                 required
               />
+            </div>
+            <div
+              class="role-chooser"
+              id="joinRoleChooser"
+              role="group"
+              aria-label="Choose your role"
+            >
+              <button type="button" class="role-option" data-role="pacman">
+                <span data-icon="pacman" data-icon-filled></span>
+                <span>Pac-Man</span>
+              </button>
+              <button type="button" class="role-option" data-role="ghost">
+                <span data-icon="ghost" data-icon-filled></span>
+                <span>Ghost</span>
+              </button>
             </div>
             <div class="form-actions">
               <button id="joinButton" class="btn btn-primary" type="button">Join</button>
@@ -126,11 +156,29 @@
         <div id="waitingRoom" class="screen" style="display: none">
           <div class="waiting-container">
             <h2>Waiting for players</h2>
-            <p>Need at least 1 Pac-Man and 1 ghost to start.</p>
+            <p>
+              Need at least 1 Pac-Man and 1 ghost to start. Up to 10 players · max 6 Pac-Men · max 6
+              ghosts.
+            </p>
 
             <div class="players-list">
               <h3>Connected players</h3>
               <div id="playersList" role="list"></div>
+            </div>
+
+            <div class="color-picker-section">
+              <h3>Your color</h3>
+              <div
+                id="colorPicker"
+                class="color-picker"
+                role="group"
+                aria-label="Pick your color"
+              ></div>
+            </div>
+
+            <div class="map-vote-section">
+              <h3>Vote for a map</h3>
+              <div id="mapVoteList" class="map-vote-list" role="list"></div>
             </div>
 
             <button
@@ -150,27 +198,51 @@
           <div class="game-controls">
             <div class="controls-actions">
               <button
-                id="muteButton"
+                id="exitGameButton"
                 class="btn btn-secondary"
                 type="button"
-                aria-label="Mute sound"
-                aria-pressed="false"
+                aria-label="Leave game"
               >
-                🔊
-              </button>
-              <button id="exitGameButton" class="btn btn-secondary" type="button">
-                Leave game
+                <span data-icon="log-out"></span>
               </button>
             </div>
+            <!-- Active power-up timers for the local player (populated at
+                 runtime). Sits in the centre of the in-game bar. -->
+            <div id="powerupTimers" class="powerup-timers" aria-live="polite"></div>
             <div class="controls-info">
               <p>Arrow keys or the on-screen pad to move.</p>
               <div class="game-stats">
-                <span class="stat"><em>Score</em><span id="gameScore">0</span></span>
-                <span class="stat"><em>Pellets</em><span id="gamePellets">0</span></span>
-                <span class="stat"><em>Players</em><span id="gamePlayers">0</span></span>
+                <span class="stat" aria-label="Score">
+                  <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+                    <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+                    <path d="M4 22h16" />
+                    <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
+                    <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
+                    <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+                  </svg>
+                  <span class="sr-only">Score</span>
+                  <span id="gameScore" class="stat-value">0</span>
+                </span>
+                <span class="stat" aria-label="Pellets remaining">
+                  <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" />
+                    <circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />
+                  </svg>
+                  <span class="sr-only">Pellets</span>
+                  <span id="gamePellets" class="stat-value">0</span>
+                </span>
+                <span class="stat" aria-label="Players">
+                  <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                  <span class="sr-only">Players</span>
+                  <span id="gamePlayers" class="stat-value">0</span>
+                </span>
               </div>
-              <!-- Active power-up timers for the local player (populated at runtime) -->
-              <div id="powerupTimers" class="powerup-timers" aria-live="polite"></div>
             </div>
           </div>
 
@@ -181,14 +253,20 @@
           <!-- Split, handheld-style touch controls: left/right on one side, up/down on the other -->
           <div class="touch-controls">
             <div class="touch-cluster touch-left">
-              <button id="dpadLeft" class="dpad-btn" type="button" aria-label="Move left">◀</button>
+              <button id="dpadLeft" class="dpad-btn" type="button" aria-label="Move left">
+                <span data-icon="arrow-left"></span>
+              </button>
               <button id="dpadRight" class="dpad-btn" type="button" aria-label="Move right">
-                ▶
+                <span data-icon="arrow-right"></span>
               </button>
             </div>
             <div class="touch-cluster touch-right">
-              <button id="dpadUp" class="dpad-btn" type="button" aria-label="Move up">▲</button>
-              <button id="dpadDown" class="dpad-btn" type="button" aria-label="Move down">▼</button>
+              <button id="dpadUp" class="dpad-btn" type="button" aria-label="Move up">
+                <span data-icon="arrow-up"></span>
+              </button>
+              <button id="dpadDown" class="dpad-btn" type="button" aria-label="Move down">
+                <span data-icon="arrow-down"></span>
+              </button>
             </div>
           </div>
         </div>
@@ -207,46 +285,71 @@
         title="Connecting…"
         aria-label="Connection status: connecting"
       ></span>
+      <button
+        id="muteButton"
+        class="corner-btn"
+        type="button"
+        aria-label="Mute sound"
+        aria-pressed="false"
+      ></button>
       <div class="help-group">
         <div id="helpTooltip" class="help-tooltip" role="tooltip" aria-hidden="true">
-        <h3>How it works</h3>
-        <p><strong>Join room:</strong> Enter the room code shared by the room creator.</p>
-        <p><strong>Quick join:</strong> Join the default public room.</p>
-        <p><strong>Create room:</strong> Make a new room with your custom name as the room code.</p>
-
-        <div class="instructions">
-          <h3>How to play</h3>
-          <p>Use the <strong>arrow keys</strong> or the on-screen pad to move.</p>
-          <p><strong>Pac-Men:</strong> collect all pellets to win.</p>
+          <h3>How it works</h3>
+          <p><strong>Join room:</strong> Enter the room code shared by the room creator.</p>
+          <p><strong>Quick join:</strong> Join the default public room.</p>
           <p>
-            <strong>Ghosts:</strong> catch a Pac-Man to turn it into a ghost. Win once every
-            Pac-Man has been caught.
+            <strong>Create room:</strong> Make a new room with your custom name as the room code.
           </p>
-          <div class="power-ups">
-            <h4>Power-ups (spawn every 30s, vanish after 15s if uncollected)</h4>
-            <div class="power-up-item">
-              <span class="power-up-icon speed" aria-label="Speed boost">●</span>
-              <span>Speed boost (10 seconds)</span>
-            </div>
-            <div class="power-up-item">
-              <span class="power-up-icon invincibility" aria-label="Invincibility">●</span>
-              <span>Invincibility (5 seconds)</span>
-            </div>
-            <div class="power-up-item">
-              <span class="power-up-icon multiplier" aria-label="Score multiplier">●</span>
-              <span>Pellet multiplier (doubles score, 10 seconds)</span>
+
+          <div class="instructions">
+            <h3>How to play</h3>
+            <p>Use the <strong>arrow keys</strong> or the on-screen pad to move.</p>
+            <p><strong>Pac-Men:</strong> collect all pellets to win.</p>
+            <p>
+              <strong>Ghosts:</strong> catch a Pac-Man to turn it into a ghost. Win once every
+              Pac-Man has been caught.
+            </p>
+            <div class="power-ups">
+              <h4>Power-ups (a new boost every ~15s, vanishes after 20s if uncollected)</h4>
+              <p>Each item only works for its own team — the other side walks over it.</p>
+              <div class="power-up-item">
+                <span data-icon="speed" data-icon-class="power-up-icon pu-speed"></span>
+                <span>Speed boost (10 seconds)</span>
+              </div>
+              <div class="power-up-item">
+                <span data-icon="invincibility" data-icon-class="power-up-icon pu-invincibility"></span>
+                <span>Invincibility — eat ghosts (5 seconds)</span>
+              </div>
+              <div class="power-up-item">
+                <span
+                  data-icon="pellet_multiplier"
+                  data-icon-class="power-up-icon pu-pellet_multiplier"
+                ></span>
+                <span>Pellet multiplier (doubles score, 10 seconds)</span>
+              </div>
+              <div class="power-up-item">
+                <span data-icon="magnet" data-icon-class="power-up-icon pu-magnet"></span>
+                <span>Pellet magnet — vacuum nearby pellets (6 seconds)</span>
+              </div>
+              <div class="power-up-item">
+                <span data-icon="phase" data-icon-class="power-up-icon pu-phase"></span>
+                <span>Phase — pass through walls (3 seconds)</span>
+              </div>
+              <div class="power-up-item">
+                <span data-icon="frozen" data-icon-class="power-up-icon pu-frozen"></span>
+                <span>Freeze — stun the other team (2.5 seconds)</span>
+              </div>
             </div>
           </div>
         </div>
-        </div>
         <button
           id="helpButton"
-          class="help-button"
+          class="help-button corner-btn"
           type="button"
           aria-label="Help: how it works and how to play"
           aria-expanded="false"
         >
-          ?
+          <span data-icon="help"></span>
         </button>
       </div>
     </div>

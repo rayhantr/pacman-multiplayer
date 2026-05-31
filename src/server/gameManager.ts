@@ -17,7 +17,18 @@ import type {
   InterServerEvents,
   SocketData,
 } from './types.js';
-import { EFFECT_DURATION_MS, ITEM_SELF_EFFECT, PACMAN_POWERUPS, GHOST_POWERUPS } from './types.js';
+import {
+  EFFECT_DURATION_MS,
+  ITEM_SELF_EFFECT,
+  PACMAN_POWERUPS,
+  GHOST_POWERUPS,
+  MAX_PLAYERS_PER_ROOM,
+  MAX_PACMAN,
+  MAX_GHOSTS,
+  BASE_MOVE_COOLDOWN_MS,
+  BOOSTED_MOVE_COOLDOWN_MS,
+} from './types.js';
+import { GAME_MAPS, getMap, isMapLocked, DEFAULT_MAP_ID, type GameMap } from '../shared/maps.js';
 
 type TypedServer = SocketIOServer<
   ClientToServerEvents,
@@ -26,15 +37,36 @@ type TypedServer = SocketIOServer<
   SocketData
 >;
 
-const MAX_PLAYERS = 5;
-const GHOST_COLORS = ['red', 'pink', 'cyan', 'orange'] as const;
-const PACMAN_COLORS = ['amber', 'lime', 'sky', 'rose', 'violet'] as const;
+const MAX_PLAYERS = MAX_PLAYERS_PER_ROOM;
+const GHOST_COLORS = [
+  'red',
+  'pink',
+  'cyan',
+  'orange',
+  'green',
+  'violet',
+  'yellow',
+  'indigo',
+  'fuchsia',
+  'blue',
+] as const;
+const PACMAN_COLORS = [
+  'amber',
+  'lime',
+  'sky',
+  'rose',
+  'violet',
+  'teal',
+  'yellow',
+  'indigo',
+  'fuchsia',
+  'blue',
+] as const;
 
 // Movement is discrete (one cell per accepted input). A per-player cooldown
-// throttles moves and is the mechanism that makes the speed-boost power-up
-// meaningful (and incidentally rate-limits move spam).
-const BASE_MOVE_COOLDOWN_MS = 130;
-const BOOSTED_MOVE_COOLDOWN_MS = 65;
+// (shared with the client's render interpolation, see types.ts) throttles moves
+// and is the mechanism that makes the speed-boost power-up meaningful (and
+// incidentally rate-limits move spam).
 
 // Two team pools now alternate on each spawn, so halve the interval to keep each
 // team supplied at roughly the original one-item-per-30s cadence.
@@ -66,6 +98,11 @@ export class GameManager {
   private readonly random: () => number;
   // Alternates the spawn pool (Pac-Man vs ghost) so neither team starves.
   private spawnCount = 0;
+  // The board currently in play (or the default while in the lobby). Finalized
+  // from the lobby vote when the host starts.
+  private currentMap: GameMap = getMap(DEFAULT_MAP_ID);
+  // Lobby map votes: playerId -> mapId. The most-voted unlocked map is played.
+  private readonly mapVotes = new Map<string, string>();
 
   constructor(
     io: SocketIOServer,
@@ -81,7 +118,7 @@ export class GameManager {
   }
 
   private initializeGameState(): GameState {
-    const maze = this.generateMaze();
+    const maze = this.currentMap.grid;
     const pellets = this.generatePellets(maze);
 
     return {
@@ -95,36 +132,6 @@ export class GameManager {
       powerUps: new Map(),
       startTime: null,
     };
-  }
-
-  private generateMaze(): readonly (readonly number[])[] {
-    const width = 20;
-    const height = 19;
-    const maze: number[][] = [];
-
-    for (let y = 0; y < height; y++) {
-      maze[y] = [];
-      for (let x = 0; x < width; x++) {
-        if (x === 0 || x === width - 1 || y === 0 || y === height - 1) {
-          maze[y]![x] = 1; // Border wall
-        } else if ((x % 4 === 0 && y % 4 === 0) || (x % 6 === 0 && y % 3 === 0)) {
-          maze[y]![x] = 1; // Internal wall
-        } else {
-          maze[y]![x] = 0; // Path
-        }
-      }
-    }
-
-    // Ensure spawn areas are clear
-    for (let y = 1; y <= 3; y++) {
-      for (let x = 1; x <= 3; x++) {
-        if (maze[y]) {
-          maze[y]![x] = 0;
-        }
-      }
-    }
-
-    return maze as readonly (readonly number[])[];
   }
 
   private generatePellets(maze: readonly (readonly number[])[]): Set<string> {
@@ -145,7 +152,7 @@ export class GameManager {
     return pellets;
   }
 
-  public handlePlayerJoin(socket: Socket, name: string): void {
+  public handlePlayerJoin(socket: Socket, name: string, requestedRole?: Role): void {
     if (this.players.has(socket.id)) {
       console.log(`Player ${socket.id} attempted to join again, ignoring duplicate request`);
       return;
@@ -161,14 +168,18 @@ export class GameManager {
       return;
     }
 
-    // First player to join owns the room (controls start/restart) and defaults
-    // to Pac-Man; everyone else defaults to ghost. All roles are re-pickable in
-    // the lobby via set_role.
-    const isPacman = this.players.size === 0;
-    if (isPacman) {
+    // First player to join owns the room (controls start/restart) regardless of
+    // role. The role is the player's chosen one when it has capacity, otherwise
+    // a fallback; all roles stay re-pickable in the lobby via set_role.
+    const firstJoiner = this.players.size === 0;
+    if (firstJoiner) {
       this.hostId = socket.id;
     }
-    const role: 'pacman' | 'ghost' = isPacman ? 'pacman' : 'ghost';
+    const role = this.resolveJoinRole(requestedRole, firstJoiner);
+    if (!role) {
+      socket.emit('join_failed', { reason: 'Game is full' });
+      return;
+    }
     const spawnSlot = this.nextFreeSlot(role);
     const colors = this.colorForRole(role, spawnSlot);
 
@@ -182,7 +193,7 @@ export class GameManager {
       spawnSlot,
       position: this.getSpawnPosition(role, spawnSlot),
       direction: 'right',
-      speed: isPacman ? 2 : 1.8,
+      speed: role === 'pacman' ? 2 : 1.8,
       powerUps: {},
       lastMoveAt: 0,
       isAlive: true,
@@ -203,8 +214,35 @@ export class GameManager {
       can_start: this.canStartGame(),
     });
 
+    // A new player can lock small maps; prune now-invalid votes and resync.
+    this.pruneVotes();
+    this.broadcastMapState();
+
     console.log(`Player ${name} joined as ${role} (${socket.id})`);
     this.notifyRoomsChanged?.();
+  }
+
+  /**
+   * Decide the role for a joining player: honor the request when that role has
+   * capacity, fall back to the other role when it doesn't, and preserve the
+   * historical default (first joiner Pac-Man, others ghost) when none is asked.
+   * Returns null only when the room is genuinely full for both roles.
+   */
+  private resolveJoinRole(requested: Role | undefined, firstJoiner: boolean): Role | null {
+    const canPac = this.countRole('pacman') < MAX_PACMAN;
+    const canGhost = this.countRole('ghost') < MAX_GHOSTS;
+
+    if (requested === 'pacman') {
+      return canPac ? 'pacman' : canGhost ? 'ghost' : null;
+    }
+    if (requested === 'ghost') {
+      return canGhost ? 'ghost' : canPac ? 'pacman' : null;
+    }
+    // No explicit choice: first joiner prefers Pac-Man, everyone else a ghost.
+    if (firstJoiner) {
+      return canPac ? 'pacman' : canGhost ? 'ghost' : null;
+    }
+    return canGhost ? 'ghost' : canPac ? 'pacman' : null;
   }
 
   public handlePlayerMove(playerId: string, direction: Direction): void {
@@ -307,6 +345,15 @@ export class GameManager {
       return;
     }
 
+    // The target role must have an open slot (the player isn't counted in it yet).
+    const cap = role === 'pacman' ? MAX_PACMAN : MAX_GHOSTS;
+    if (this.countRole(role) >= cap) {
+      this.io.to(playerId).emit('role_change_failed', {
+        reason: `Too many ${role === 'pacman' ? 'Pac-Men' : 'ghosts'} already.`,
+      });
+      return;
+    }
+
     const slot = this.nextFreeSlot(role);
     const colors = this.colorForRole(role, slot);
     player.role = role;
@@ -326,6 +373,94 @@ export class GameManager {
     this.notifyRoomsChanged?.();
   }
 
+  /** Let a waiting player pick any color from their role's palette (duplicates allowed). */
+  public handleSetColor(playerId: string, color: string): void {
+    const player = this.players.get(playerId);
+    if (!player || this.gameState.isStarted || this.gameState.isGameOver) {
+      return; // Colors are only editable in the lobby.
+    }
+
+    if (player.role === 'pacman') {
+      if (!(PACMAN_COLORS as readonly string[]).includes(color)) {
+        return;
+      }
+      player.pacmanColor = color as PacmanColor;
+      player.ghostColor = null;
+    } else {
+      if (!(GHOST_COLORS as readonly string[]).includes(color)) {
+        return;
+      }
+      player.ghostColor = color as GhostColor;
+      player.pacmanColor = null;
+    }
+
+    this.io.to(this.roomId).emit('player_color_changed', {
+      player_id: playerId,
+      ghostColor: player.ghostColor ?? null,
+      pacmanColor: player.pacmanColor ?? null,
+    });
+  }
+
+  /** Record a player's map vote (lobby only); the most-voted unlocked map is played. */
+  public handleVoteMap(playerId: string, mapId: string): void {
+    const player = this.players.get(playerId);
+    if (!player || this.gameState.isStarted || this.gameState.isGameOver) {
+      return;
+    }
+    const map = getMap(mapId);
+    if (map.id !== mapId || isMapLocked(map, this.players.size)) {
+      return; // Unknown or locked map: ignore the vote.
+    }
+    this.mapVotes.set(playerId, mapId);
+    this.broadcastMapState();
+  }
+
+  /** The most-voted map among those not locked by the current head-count. */
+  private selectedMapId(): string {
+    const playerCount = this.players.size;
+    const tally = new Map<string, number>();
+    for (const mapId of this.mapVotes.values()) {
+      tally.set(mapId, (tally.get(mapId) ?? 0) + 1);
+    }
+    // Catalog order is the tie-break, so the default (first, always unlocked)
+    // wins when there are no votes.
+    let best = DEFAULT_MAP_ID;
+    let bestVotes = -1;
+    for (const map of GAME_MAPS) {
+      if (isMapLocked(map, playerCount)) {
+        continue;
+      }
+      const votes = tally.get(map.id) ?? 0;
+      if (votes > bestVotes) {
+        bestVotes = votes;
+        best = map.id;
+      }
+    }
+    return best;
+  }
+
+  /** Drop votes for maps that are now locked, or cast by players who left. */
+  private pruneVotes(): void {
+    const playerCount = this.players.size;
+    for (const [playerId, mapId] of this.mapVotes) {
+      const map = getMap(mapId);
+      if (!this.players.has(playerId) || map.id !== mapId || isMapLocked(map, playerCount)) {
+        this.mapVotes.delete(playerId);
+      }
+    }
+  }
+
+  private broadcastMapState(): void {
+    const votes: Record<string, number> = {};
+    for (const mapId of this.mapVotes.values()) {
+      votes[mapId] = (votes[mapId] ?? 0) + 1;
+    }
+    this.io.to(this.roomId).emit('lobby_map_state', {
+      votes,
+      selectedMapId: this.selectedMapId(),
+    });
+  }
+
   public handleStartGame(playerId: string): void {
     if (playerId !== this.hostId) {
       return; // Only the host can start.
@@ -337,14 +472,20 @@ export class GameManager {
       return;
     }
 
+    // Lock in the voted map and rebuild the board around it, then place every
+    // player at a fresh, role-appropriate spawn on that map.
+    this.currentMap = getMap(this.selectedMapId());
+    this.gameState = this.initializeGameState();
+    this.assignSpawns();
+
     this.gameState.isStarted = true;
     this.gameState.startTime = Date.now();
     this.gameState.pelletsRemaining = this.gameState.pellets.size;
 
-    this.io.to(this.roomId).emit('game_started');
+    this.io.to(this.roomId).emit('game_started', { game_state: this.getClientGameState() });
     this.startPowerUpTimer();
 
-    console.log('🎮 Game started!');
+    console.log(`🎮 Game started on map "${this.currentMap.name}"!`);
     this.notifyRoomsChanged?.();
   }
 
@@ -364,6 +505,7 @@ export class GameManager {
     }
 
     this.players.delete(playerId);
+    this.mapVotes.delete(playerId);
     this.io.to(this.roomId).emit('player_left', { player_id: playerId });
 
     console.log(
@@ -393,9 +535,15 @@ export class GameManager {
     // If the room emptied, reset it so the next players get a fresh board.
     if (this.players.size === 0) {
       this.clearPowerUpTimer();
+      this.mapVotes.clear();
+      this.currentMap = getMap(DEFAULT_MAP_ID);
       this.gameState = this.initializeGameState();
       this.hostId = null;
       console.log('🔄 No players left, game reset');
+    } else if (!this.gameState.isStarted) {
+      // A departure can unlock small maps; keep the lobby's vote state in sync.
+      this.pruneVotes();
+      this.broadcastMapState();
     }
 
     this.notifyRoomsChanged?.();
@@ -410,25 +558,7 @@ export class GameManager {
 
     this.clearPowerUpTimer();
     this.gameState = this.initializeGameState();
-
-    // Restore each player to the role they chose in the lobby (undoing any
-    // catch-conversions from the previous round) and re-derive slot/color.
-    // Per-role counters keep slots unique regardless of iteration order.
-    let pacmanSlot = 0;
-    let ghostSlot = 0;
-    this.players.forEach(p => {
-      p.role = p.lobbyRole;
-      const slot = p.role === 'pacman' ? pacmanSlot++ : ghostSlot++;
-      const colors = this.colorForRole(p.role, slot);
-      p.spawnSlot = slot;
-      p.ghostColor = colors.ghostColor;
-      p.pacmanColor = colors.pacmanColor;
-      p.position = this.getSpawnPosition(p.role, slot);
-      p.direction = 'right';
-      p.powerUps = {};
-      p.lastMoveAt = 0;
-      p.isAlive = true;
-    });
+    this.assignSpawns();
 
     this.io.to(this.roomId).emit('game_restarted', {
       game_state: this.getClientGameState(),
@@ -438,32 +568,47 @@ export class GameManager {
     this.notifyRoomsChanged?.();
   }
 
+  /**
+   * Place every player at a fresh spawn for the current map, restoring the role
+   * they chose in the lobby (undoing any catch-conversions). Per-role counters
+   * keep slots/positions unique regardless of iteration order. A player's chosen
+   * color is preserved; only a missing color (e.g. after a conversion nulled it)
+   * falls back to the slot default.
+   */
+  private assignSpawns(): void {
+    let pacmanSlot = 0;
+    let ghostSlot = 0;
+    this.players.forEach(p => {
+      p.role = p.lobbyRole;
+      const slot = p.role === 'pacman' ? pacmanSlot++ : ghostSlot++;
+      const fallback = this.colorForRole(p.role, slot);
+      p.spawnSlot = slot;
+      if (p.role === 'pacman') {
+        p.pacmanColor = p.pacmanColor ?? fallback.pacmanColor;
+        p.ghostColor = null;
+      } else {
+        p.ghostColor = p.ghostColor ?? fallback.ghostColor;
+        p.pacmanColor = null;
+      }
+      p.position = this.getSpawnPosition(p.role, slot);
+      p.direction = 'right';
+      p.powerUps = {};
+      p.lastMoveAt = 0;
+      p.isAlive = true;
+    });
+  }
+
   private getSpawnPosition(role: 'pacman' | 'ghost', spawnSlot: number | null): Position {
-    if (role === 'pacman') {
-      // Distinct corners/edges so multiple Pac-Men don't stack. Each candidate
-      // is validated against the maze; fall back to {1,1} (guaranteed walkable
-      // by the spawn-block clear at maze generation).
-      // All verified-path cells (maze rule: wall where x%4==0&&y%4==0 or
-      // x%6==0&&y%3==0), distinct from the ghost spawn cells.
-      const pacmanSpawns: readonly Position[] = [
-        { x: 1, y: 1 },
-        { x: 1, y: 9 },
-        { x: 9, y: 1 },
-        { x: 17, y: 1 },
-        { x: 9, y: 17 },
-      ] as const;
-      const candidate = pacmanSpawns[spawnSlot ?? 0] ?? { x: 1, y: 1 };
-      return this.isValidMove(candidate) ? candidate : { x: 1, y: 1 };
+    // Spawn lists come from the active map; both are distinct, walkable cells.
+    const spawns = role === 'pacman' ? this.currentMap.pacmanSpawns : this.currentMap.ghostSpawns;
+    const candidate = spawns[spawnSlot ?? 0];
+    if (candidate && this.isValidMove(candidate)) {
+      return candidate;
     }
-
-    const ghostSpawns: readonly Position[] = [
-      { x: 18, y: 1 },
-      { x: 1, y: 17 },
-      { x: 18, y: 17 },
-      { x: 9, y: 9 },
-    ] as const;
-
-    return ghostSpawns[spawnSlot ?? 0] ?? { x: 9, y: 9 };
+    // Overflow (more players of a role than listed spawns) or an invalid cell:
+    // settle onto the nearest walkable cell to a known-good anchor.
+    const anchor = candidate ?? spawns[0] ?? { x: 1, y: 1 };
+    return this.nearestWalkable(anchor) ?? this.nearestWalkable({ x: 1, y: 1 }) ?? { x: 1, y: 1 };
   }
 
   /** Lowest spawn slot not currently used by a player of the given role. */

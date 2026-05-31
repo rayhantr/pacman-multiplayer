@@ -43,7 +43,7 @@ describe('RoomManager', () => {
       id: 'room_default',
       name: 'Default Room',
       playerCount: 0,
-      maxPlayers: 5,
+      maxPlayers: 10,
       isStarted: false,
       isGameOver: false,
     });
@@ -71,6 +71,20 @@ describe('RoomManager', () => {
     expect(rm.findRoomByCode('')).toBe('room_default');
     expect(rm.findRoomByCode('MyRoom')).toBe('room_1');
     expect(rm.findRoomByCode('Unknown')).toBeNull();
+  });
+
+  it('matches room codes case-insensitively and ignores surrounding whitespace', () => {
+    const { io } = createMockIo();
+    const rm = new RoomManager(io);
+    rm.createRoom(createMockSocket('host').socket, 'Alice', 'MyRoom');
+
+    expect(rm.findRoomByCode('myroom')).toBe('room_1');
+    expect(rm.findRoomByCode('MYROOM')).toBe('room_1');
+    expect(rm.findRoomByCode('  MyRoom  ')).toBe('room_1');
+    // The default room stays reachable regardless of case.
+    expect(rm.findRoomByCode('DEFAULT')).toBe('room_default');
+    // Unknown codes still return null.
+    expect(rm.findRoomByCode('nope')).toBeNull();
   });
 
   it('rejects joining an unknown room code', () => {

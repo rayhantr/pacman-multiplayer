@@ -1,9 +1,9 @@
 import type { Server as SocketIOServer, Socket } from 'socket.io';
 import { GameManager } from './gameManager.js';
-import type { Direction, RoomInfo } from './types.js';
+import type { Direction, Role, RoomInfo } from './types.js';
+import { MAX_PLAYERS_PER_ROOM } from './types.js';
 
 const DEFAULT_ROOM_ID = 'room_default';
-const MAX_PLAYERS_PER_ROOM = 5;
 
 export class RoomManager {
   private readonly io: SocketIOServer;
@@ -29,7 +29,7 @@ export class RoomManager {
     console.log('📦 Default room created:', DEFAULT_ROOM_ID);
   }
 
-  public createRoom(socket: Socket, playerName: string, roomName: string): void {
+  public createRoom(socket: Socket, playerName: string, roomName: string, role?: Role): void {
     this.roomCounter++;
     const roomId = `room_${this.roomCounter}`;
 
@@ -39,13 +39,13 @@ export class RoomManager {
     console.log(`📦 Room created: ${roomId} (${roomName}) by ${playerName}`);
 
     // Join the creator to the room.
-    this.joinRoom(socket, playerName, roomId);
+    this.joinRoom(socket, playerName, roomId, role);
 
     socket.emit('room_created', { roomId, roomName });
     this.broadcastRoomsList();
   }
 
-  public joinRoom(socket: Socket, playerName: string, roomId?: string): void {
+  public joinRoom(socket: Socket, playerName: string, roomId?: string, role?: Role): void {
     const targetRoomId = roomId ?? DEFAULT_ROOM_ID;
     const gameManager = this.rooms.get(targetRoomId);
 
@@ -62,7 +62,7 @@ export class RoomManager {
     this.playerRooms.set(socket.id, targetRoomId);
     void socket.join(targetRoomId);
 
-    gameManager.handlePlayerJoin(socket, playerName);
+    gameManager.handlePlayerJoin(socket, playerName, role);
   }
 
   public leaveRoom(socketId: string): void {
@@ -109,6 +109,14 @@ export class RoomManager {
     this.withRoom(socketId, gameManager => gameManager.handleSetRole(socketId, role));
   }
 
+  public handleSetColor(socketId: string, color: string): void {
+    this.withRoom(socketId, gameManager => gameManager.handleSetColor(socketId, color));
+  }
+
+  public handleVoteMap(socketId: string, mapId: string): void {
+    this.withRoom(socketId, gameManager => gameManager.handleVoteMap(socketId, mapId));
+  }
+
   public handleStartGame(socketId: string): void {
     this.withRoom(socketId, gameManager => gameManager.handleStartGame(socketId));
   }
@@ -144,12 +152,15 @@ export class RoomManager {
   }
 
   public findRoomByCode(roomCode: string): string | null {
-    if (roomCode.toLowerCase() === 'default' || roomCode === '') {
+    // Room codes are matched case-insensitively (and trimmed) so a code typed
+    // with different capitalization or stray spaces still resolves.
+    const needle = roomCode.trim().toLowerCase();
+    if (needle === 'default' || needle === '') {
       return DEFAULT_ROOM_ID;
     }
 
     for (const [roomId, roomName] of this.roomNames.entries()) {
-      if (roomName === roomCode) {
+      if (roomName.toLowerCase() === needle) {
         return roomId;
       }
     }
@@ -157,7 +168,7 @@ export class RoomManager {
     return null;
   }
 
-  public joinRoomByCode(socket: Socket, playerName: string, roomCode: string): void {
+  public joinRoomByCode(socket: Socket, playerName: string, roomCode: string, role?: Role): void {
     const roomId = this.findRoomByCode(roomCode);
 
     if (!roomId) {
@@ -165,6 +176,6 @@ export class RoomManager {
       return;
     }
 
-    this.joinRoom(socket, playerName, roomId);
+    this.joinRoom(socket, playerName, roomId, role);
   }
 }

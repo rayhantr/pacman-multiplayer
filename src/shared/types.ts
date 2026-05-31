@@ -99,9 +99,55 @@ export const EFFECT_DURATION_MS: Record<EffectType, number> = {
 
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
-export type GhostColor = 'red' | 'pink' | 'cyan' | 'orange';
+export type GhostColor =
+  | 'red'
+  | 'pink'
+  | 'cyan'
+  | 'orange'
+  | 'green'
+  | 'violet'
+  | 'yellow'
+  | 'indigo'
+  | 'fuchsia'
+  | 'blue';
 
-export type PacmanColor = 'amber' | 'lime' | 'sky' | 'rose' | 'violet';
+export type PacmanColor =
+  | 'amber'
+  | 'lime'
+  | 'sky'
+  | 'rose'
+  | 'violet'
+  | 'teal'
+  | 'yellow'
+  | 'indigo'
+  | 'fuchsia'
+  | 'blue';
+
+/**
+ * Per-room population limits, shared so the server (authoritative enforcement)
+ * and the client (disabling full role toggles, "room full" UI) never drift.
+ */
+export const MAX_PLAYERS_PER_ROOM = 10;
+export const MAX_PACMAN = 6;
+export const MAX_GHOSTS = 6;
+
+// Discrete movement cadence, shared so the client's render interpolation matches
+// the server's per-player move cooldown exactly (no visible trailing).
+export const BASE_MOVE_COOLDOWN_MS = 130;
+export const BOOSTED_MOVE_COOLDOWN_MS = 65;
+
+export type MapSize = 'small' | 'big';
+
+/** Lobby-facing map metadata (the grid itself is delivered with the game state). */
+export interface MapInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly size: MapSize;
+  readonly width: number;
+  readonly height: number;
+  /** Lock threshold: the map is unavailable once playerCount exceeds this. */
+  readonly maxPlayers: number;
+}
 
 /** An active, time-limited effect applied to a player. */
 export interface PowerUpEffect {
@@ -206,6 +252,19 @@ export interface ServerToClientEvents {
     readonly pacmanColor?: PacmanColor | null;
     readonly can_start: boolean;
   }) => void;
+  /** A waiting player changed their avatar color (free choice; duplicates allowed). */
+  player_color_changed: (data: {
+    readonly player_id: string;
+    readonly ghostColor?: GhostColor | null;
+    readonly pacmanColor?: PacmanColor | null;
+  }) => void;
+  /** A role switch was rejected because the target role is already at its cap. */
+  role_change_failed: (data: { readonly reason: string }) => void;
+  /** Lobby map-vote tallies and the currently-leading (to-be-played) map. */
+  lobby_map_state: (data: {
+    readonly votes: Readonly<Record<string, number>>;
+    readonly selectedMapId: string;
+  }) => void;
   /** The host tried to start without at least one of each role. */
   start_failed: (data: { readonly reason: string }) => void;
   /** A Pac-Man was caught and permanently converted into a ghost. */
@@ -215,7 +274,8 @@ export interface ServerToClientEvents {
     readonly x: number;
     readonly y: number;
   }) => void;
-  game_started: () => void;
+  /** Carries the final board: the selected map's maze/spawns/colors are only fixed at start. */
+  game_started: (data: { readonly game_state: ClientGameState }) => void;
   player_moved: (data: {
     readonly player_id: string;
     readonly x: number;
@@ -251,7 +311,7 @@ export interface ServerToClientEvents {
   effect_expired: (data: { readonly player_id: string; readonly effect: EffectType }) => void;
   /** A board boost vanished uncollected after its on-board lifetime. */
   power_up_despawned: (data: { readonly position: string }) => void;
-  game_over: (data: { readonly winner: string; readonly score: number }) => void;
+  game_over: (data: { readonly winner: 'pacman' | 'ghosts'; readonly score: number }) => void;
   game_restarted: (data: { readonly game_state: ClientGameState }) => void;
   rooms_list: (data: { readonly rooms: readonly RoomInfo[] }) => void;
   room_created: (data: { readonly roomId: string; readonly roomName: string }) => void;
@@ -259,11 +319,23 @@ export interface ServerToClientEvents {
 
 /** Events clients emit to the server. */
 export interface ClientToServerEvents {
-  join_game: (data: { readonly name: string; readonly roomCode?: string }) => void;
-  create_room: (data: { readonly name: string; readonly roomName: string }) => void;
+  join_game: (data: {
+    readonly name: string;
+    readonly roomCode?: string;
+    readonly role?: Role;
+  }) => void;
+  create_room: (data: {
+    readonly name: string;
+    readonly roomName: string;
+    readonly role?: Role;
+  }) => void;
   list_rooms: () => void;
   player_move: (data: { readonly direction: Direction }) => void;
   set_role: (data: { readonly role: 'pacman' | 'ghost' }) => void;
+  /** Pick an avatar color from the current role's palette (duplicates allowed). */
+  set_color: (data: { readonly color: string }) => void;
+  /** Cast/replace this player's vote for the map to play. */
+  vote_map: (data: { readonly mapId: string }) => void;
   start_game: () => void;
   restart_game: () => void;
   leave_game: () => void;

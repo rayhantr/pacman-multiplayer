@@ -103,7 +103,8 @@ io.on('connection', socket => {
       }
 
       const roomCode = data.roomCode ?? 'default'; // Default room if no code provided
-      roomManager.joinRoomByCode(socket, data.name.trim(), roomCode);
+      const role = data.role === 'pacman' || data.role === 'ghost' ? data.role : undefined;
+      roomManager.joinRoomByCode(socket, data.name.trim(), roomCode, role);
     } catch (error) {
       console.error('Error handling player join:', error);
       socket.emit('join_failed', { reason: 'Server error occurred' });
@@ -121,7 +122,8 @@ io.on('connection', socket => {
         socket.emit('join_failed', { reason: 'Invalid room name' });
         return;
       }
-      roomManager.createRoom(socket, data.name.trim(), data.roomName.trim());
+      const role = data.role === 'pacman' || data.role === 'ghost' ? data.role : undefined;
+      roomManager.createRoom(socket, data.name.trim(), data.roomName.trim(), role);
     } catch (error) {
       console.error('Error creating room:', error);
       socket.emit('join_failed', { reason: 'Failed to create room' });
@@ -160,6 +162,30 @@ io.on('connection', socket => {
       roomManager.handleSetRole(socket.id, data.role);
     } catch (error) {
       console.error('Error setting role:', error);
+    }
+  });
+
+  // Handle lobby color selection
+  socket.on('set_color', data => {
+    try {
+      if (typeof data?.color !== 'string') {
+        return; // Ignore malformed input; the server also validates the palette.
+      }
+      roomManager.handleSetColor(socket.id, data.color);
+    } catch (error) {
+      console.error('Error setting color:', error);
+    }
+  });
+
+  // Handle lobby map vote
+  socket.on('vote_map', data => {
+    try {
+      if (typeof data?.mapId !== 'string') {
+        return; // Ignore malformed input; the server validates the map id.
+      }
+      roomManager.handleVoteMap(socket.id, data.mapId);
+    } catch (error) {
+      console.error('Error voting for map:', error);
     }
   });
 

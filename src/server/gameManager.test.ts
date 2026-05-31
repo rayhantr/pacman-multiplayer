@@ -71,18 +71,18 @@ describe('GameManager — lobby & roles', () => {
     expect(gm.getPlayerCount()).toBe(2);
   });
 
-  it('rejects joins beyond the maximum of five players', () => {
+  it('rejects joins beyond the maximum of ten players', () => {
     const { io } = createMockIo();
     const gm = new GameManager(io, 'room');
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       gm.handlePlayerJoin(createMockSocket(`p${i}`).socket, `P${i}`);
     }
-    const overflow = createMockSocket('p5');
+    const overflow = createMockSocket('p10');
     gm.handlePlayerJoin(overflow.socket, 'Late');
 
     expect(lastEvent(overflow.emitted, 'join_failed').reason).toBe('Game is full');
-    expect(gm.getPlayerCount()).toBe(5);
+    expect(gm.getPlayerCount()).toBe(10);
   });
 
   it('rejects joining after the game has started', () => {
@@ -494,6 +494,116 @@ describe('GameManager — collisions & end states', () => {
     emits.length = 0;
     vi.advanceTimersByTime(20_000); // sit uncollected past POWER_UP_LIFETIME_MS (20s)
     expect(eventsOf(emits, 'power_up_despawned').some(d => d.position === '1,1')).toBe(true);
+  });
+});
+
+describe('GameManager — maps, caps & colors', () => {
+  function join(gm: GameManager, id: string, name: string, role?: 'pacman' | 'ghost') {
+    const sock = createMockSocket(id);
+    gm.handlePlayerJoin(sock.socket, name, role);
+    return sock;
+  }
+
+  it('honors a requested join role and falls back when that role is full', () => {
+    const { io } = createMockIo();
+    const gm = new GameManager(io, 'room');
+
+    // First joiner explicitly picks ghost (host need not be Pac-Man).
+    const first = join(gm, 'p0', 'P0', 'ghost');
+    expect(lastEvent(first.emitted, 'join_success').role).toBe('ghost');
+
+    // Fill Pac-Man to its cap of six, then a seventh request falls back to ghost.
+    for (let i = 1; i <= 6; i++) {
+      const s = join(gm, `p${i}`, `P${i}`, 'pacman');
+      expect(lastEvent(s.emitted, 'join_success').role).toBe('pacman');
+    }
+    const overflow = join(gm, 'p7', 'P7', 'pacman');
+    expect(lastEvent(overflow.emitted, 'join_success').role).toBe('ghost');
+  });
+
+  it('blocks a role switch that would exceed the role cap', () => {
+    const { io, emits } = createMockIo();
+    const gm = new GameManager(io, 'room');
+
+    join(gm, 'p0', 'P0', 'pacman');
+    for (let i = 1; i <= 5; i++) {
+      join(gm, `p${i}`, `P${i}`, 'pacman'); // six Pac-Men total (the cap)
+    }
+    const ghost = join(gm, 'p6', 'P6', 'ghost');
+
+    emits.length = 0;
+    gm.handleSetRole('p6', 'pacman');
+
+    expect(emits.some(e => e.event === 'role_change_failed' && e.room === 'p6')).toBe(true);
+    expect(eventsOf(emits, 'player_role_changed').some(e => e.player_id === 'p6')).toBe(false);
+    // The blocked player stays a ghost (its join color is unchanged).
+    expect(lastEvent(ghost.emitted, 'join_success').role).toBe('ghost');
+  });
+
+  it('lets a waiting player pick any color from their role palette', () => {
+    const { io, emits } = createMockIo();
+    const gm = new GameManager(io, 'room');
+    join(gm, 'p0', 'P0', 'pacman');
+
+    gm.handleSetColor('p0', 'teal');
+    const changed = lastEvent(emits, 'player_color_changed');
+    expect(changed.player_id).toBe('p0');
+    expect(changed.pacmanColor).toBe('teal');
+    expect(changed.ghostColor).toBeNull();
+  });
+
+  it("ignores a color that is not in the player's role palette", () => {
+    const { io, emits } = createMockIo();
+    const gm = new GameManager(io, 'room');
+    join(gm, 'p0', 'P0', 'pacman');
+
+    emits.length = 0;
+    gm.handleSetColor('p0', 'red'); // red is a ghost color, invalid for a Pac-Man
+    expect(eventsOf(emits, 'player_color_changed')).toHaveLength(0);
+  });
+
+  it('selects the most-voted unlocked map, defaulting to Classic with no votes', () => {
+    const { io, emits } = createMockIo();
+    const gm = new GameManager(io, 'room');
+    join(gm, 'p0', 'P0', 'pacman');
+    join(gm, 'p1', 'P1', 'ghost');
+
+    // No votes yet -> the default (Classic) leads.
+    expect(lastEvent(emits, 'lobby_map_state').selectedMapId).toBe('classic');
+
+    gm.handleVoteMap('p0', 'sprawl');
+    gm.handleVoteMap('p1', 'sprawl');
+    expect(lastEvent(emits, 'lobby_map_state').selectedMapId).toBe('sprawl');
+  });
+
+  it('ignores votes for a map locked by the current head-count', () => {
+    const { io, emits } = createMockIo();
+    const gm = new GameManager(io, 'room');
+    // "cozy" caps at four players; seat five so it is locked.
+    join(gm, 'p0', 'P0', 'pacman');
+    for (let i = 1; i <= 4; i++) {
+      join(gm, `p${i}`, `P${i}`, 'ghost');
+    }
+
+    emits.length = 0;
+    gm.handleVoteMap('p0', 'cozy');
+    expect(eventsOf(emits, 'lobby_map_state')).toHaveLength(0); // vote ignored, no resync
+  });
+
+  it('plays the voted map and ships its board with game_started', () => {
+    const { io, emits } = createMockIo();
+    const gm = new GameManager(io, 'room');
+    join(gm, 'p0', 'P0', 'pacman');
+    join(gm, 'p1', 'P1', 'ghost');
+
+    gm.handleVoteMap('p0', 'grand');
+    gm.handleVoteMap('p1', 'grand');
+    gm.handleStartGame('p0');
+
+    // "grand" is 25x23 (the default Classic is 20x19), proving the swap happened.
+    const started = lastEvent(emits, 'game_started');
+    expect(started.game_state.maze[0].length).toBe(25);
+    expect(started.game_state.maze.length).toBe(23);
   });
 });
 
