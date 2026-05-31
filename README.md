@@ -1,22 +1,33 @@
 # Multiplayer Pac-Man
 
-A real-time multiplayer Pac-Man game built with TypeScript, an authoritative
-Node/Express + Socket.IO server, and an HTML5 Canvas client bundled with Vite.
+A real-time, browser-based multiplayer Pac-Man built with TypeScript. An
+authoritative Node/Express + Socket.IO server owns the game state; an HTML5
+Canvas client (bundled with Vite, styled with Tailwind CSS) renders it with
+smooth interpolation.
 
-One player controls Pac-Man; up to four others play as ghosts. The server owns
-the game state and broadcasts it to all clients over WebSockets.
+Up to **10 players** share a room and split into two teams — Pac-Men race to
+clear the board while ghosts hunt them down. The server resolves all movement,
+scoring, collisions, and win/lose conditions and broadcasts the result to every
+client over WebSockets.
 
 ## ✨ Features
 
-- **Real-time multiplayer** — up to 5 players per room (1 Pac-Man + 4 ghosts)
-- **Lobby with a live room list** — create/join rooms; the list updates as rooms
-  change
-- **Working power-ups** — Speed Boost, Invincibility, and Pellet Multiplier, each
-  applied and expired authoritatively on the server
-- **Authoritative server** — movement, scoring, collisions, and win/lose are
-  resolved server-side; clients render with smooth interpolation
-- **Type-safe wire protocol** — the Socket.IO event contract is shared between
-  client and server (`src/shared/types.ts`)
+- **Team-based multiplayer** — up to 10 players per room (up to 6 Pac-Men and
+  6 ghosts). Ghosts win only once **every** Pac-Man has been caught.
+- **Lobby with a live room list** — create or join rooms; the list updates in
+  real time as rooms fill, start, and finish.
+- **Role, color & map selection** — pick your side and avatar color in the
+  lobby, then vote for the map; the leading map is locked in at start.
+- **Six hand-tuned maps** — three big and three small boards, each gated by a
+  player cap so a packed room can only vote for boards that fit.
+- **Nine power-ups across two team pools** — Pac-Men and ghosts each have their
+  own spawn set; you can only collect your team's items.
+- **Authoritative server** — movement, the per-player move cooldown, scoring,
+  collisions, power-up effects, and win/lose are all resolved server-side. The
+  Socket.IO wire contract is shared and type-checked on both ends, so the
+  client and server protocols can never drift.
+- **Polished Canvas client** — interpolated movement, particle effects, power-up
+  auras, a self-marker, and sound.
 
 ## 🛠️ Tech Stack
 
@@ -25,7 +36,7 @@ the game state and broadcasts it to all clients over WebSockets.
 | Language | TypeScript 6                                                                                |
 | Server   | Node.js 22+, Express 5, Socket.IO 4.8                                                       |
 | Security | helmet (CSP + secure headers)                                                               |
-| Client   | HTML5 Canvas, Vite 8, socket.io-client                                                      |
+| Client   | HTML5 Canvas, Vite 8, Tailwind CSS 4, socket.io-client                                      |
 | Tooling  | ESLint 10 (flat config) + typescript-eslint, Prettier 3, Vitest 4, tsx, Husky + lint-staged |
 
 ## 📦 Installation
@@ -51,14 +62,15 @@ This starts two processes:
 - the **Express/Socket.IO server** on `http://localhost:3000` (via `tsx --watch`)
 - the **Vite dev server** on `http://localhost:5173`
 
-Open **http://localhost:5173** in your browser. Vite proxies Socket.IO traffic
-to the backend, so the client connects with a plain same-origin `io()` call.
+Open **http://localhost:5173** in your browser. The Vite dev server proxies
+Socket.IO traffic (including the WebSocket upgrade) to the backend, so the client
+connects with a plain same-origin `io()` call in both dev and production.
 
 ### Production
 
 ```bash
 npm run build   # tsc (server) -> dist/server, vite build (client) -> dist/client
-npm start       # NODE_ENV=production node dist/server/index.js
+npm start       # node dist/server/index.js
 ```
 
 In production the Express server serves the built client from `dist/client` and
@@ -66,18 +78,41 @@ handles Socket.IO on the same origin (default port `3000`, override with `PORT`)
 
 ## 🎯 How to play
 
-- **Arrow keys** move your character.
-- **First player to join a room** becomes Pac-Man and can start the game (needs at
-  least 2 players); everyone else becomes a ghost.
-- **Pac-Man** wins by collecting every pellet. **Ghosts** win by catching Pac-Man.
+- **Arrow keys** move your character one cell at a time (a short server-side
+  cooldown paces movement).
+- In the **lobby**, choose your role (Pac-Man or ghost) and avatar color, and
+  vote for a map. The host starts the game once there's at least one player on
+  each team.
+- **Pac-Men** win by collecting every pellet on the board.
+- **Ghosts** win by catching every Pac-Man. A caught Pac-Man is permanently
+  converted into a ghost, so the hunt only ends when no Pac-Men remain.
+- Each pellet is worth **10 points**; eating a ghost while invincible is worth
+  **200**.
 
-### Power-ups (spawn every 30s, collected by Pac-Man)
+### Power-ups
 
-| Power-up             | Effect                                                             |
-| -------------------- | ------------------------------------------------------------------ |
-| 🟢 Speed Boost       | Shorter move cooldown for 10 seconds                               |
-| 🟣 Invincibility     | For 5 seconds, walking into a ghost eats it (+200) and respawns it |
-| 🔵 Pellet Multiplier | Pellets score double for 10 seconds                                |
+Power-ups spawn on the board roughly **every 15 seconds**, alternating between
+the two team pools, and vanish if left uncollected for ~20 seconds. **You can
+only pick up your own team's items** — the other team walks over them harmlessly.
+
+**Pac-Man items**
+
+| Power-up             | Effect                                                       |
+| -------------------- | ------------------------------------------------------------ |
+| 🟢 Speed Boost       | Shorter move cooldown for 10 s                               |
+| 🟣 Invincibility     | For 5 s, walking into a ghost eats it (+200) and respawns it |
+| 🔵 Pellet Multiplier | Pellets score double for 10 s                                |
+| 🧲 Pellet Magnet     | Vacuums up nearby pellets within a 2-cell radius for 6 s     |
+| ❄️ Pac-Man Freeze    | Freezes the opposing **ghosts** in place for 2.5 s           |
+| 👻 Pac-Man Phase     | Pass through walls for 3 s                                   |
+
+**Ghost items**
+
+| Power-up        | Effect                                              |
+| --------------- | --------------------------------------------------- |
+| ⚡ Ghost Speed  | Shorter move cooldown for 10 s                      |
+| ❄️ Ghost Freeze | Freezes the opposing **Pac-Men** in place for 2.5 s |
+| 👻 Ghost Phase  | Pass through walls for 3 s                          |
 
 ## 📜 Scripts
 
@@ -99,16 +134,22 @@ handles Socket.IO on the same origin (default port `3000`, override with `PORT`)
 pacman-multiplayer/
 ├── src/
 │   ├── shared/
-│   │   └── types.ts          # Shared domain + Socket.IO event contract
+│   │   ├── types.ts          # Shared domain + Socket.IO event contract
+│   │   └── maps.ts           # Map catalog (boards + spawn points)
 │   ├── server/
-│   │   ├── index.ts          # Express + Socket.IO setup, helmet, CORS
-│   │   ├── gameManager.ts     # Authoritative per-room game logic
-│   │   ├── roomManager.ts     # Rooms / lobby
-│   │   └── *.test.ts          # Vitest unit tests
+│   │   ├── index.ts          # Express + Socket.IO setup, helmet, CORS, /health
+│   │   ├── gameManager.ts    # Authoritative per-room game logic
+│   │   ├── roomManager.ts    # Rooms / lobby management
+│   │   ├── types.ts          # Server-side re-export of shared types
+│   │   └── *.test.ts         # Vitest unit tests
 │   └── client/
-│       ├── index.html         # Vite entry
-│       └── main.ts            # Canvas client (imports socket.io-client)
-├── public/                   # Static assets (css, images, sounds) — Vite publicDir
+│       ├── index.html        # Vite entry
+│       ├── main.ts           # Client bootstrap + Socket.IO wiring
+│       ├── styles.css        # Tailwind v4 stylesheet
+│       ├── core/             # Constants and client-side types
+│       ├── rendering/        # Canvas renderer, entities, and effects
+│       └── ui/               # Dialogs, icons, and audio
+├── public/                   # Static assets (images, sounds) — Vite publicDir
 ├── dist/                     # Build output: dist/server + dist/client
 ├── vite.config.ts            # Client build + dev proxy
 ├── tsconfig.json             # Base TS config (extended by server/client)
@@ -118,16 +159,20 @@ pacman-multiplayer/
 
 ## 🔒 Security
 
-- `helmet` sets a Content-Security-Policy and secure headers.
+- `helmet` sets a Content-Security-Policy and secure headers tuned for this app
+  (same-origin assets, Google Fonts, the Socket.IO WebSocket, audio playback).
 - CORS is locked to same-origin in production and to the Vite dev origin in
-  development (never `*` with credentials).
-- Room names are rendered with `textContent` (no HTML injection).
+  development (never `*` together with credentials, which browsers reject).
+- All client input (player names, room names, roles, colors, map votes,
+  movement) is validated server-side; the server is the sole authority on game
+  state.
+- Room names are rendered with `textContent`, so they can't inject HTML.
 
 ## 🚀 Deployment
 
 This is a **stateful realtime WebSocket app**, so it needs a host that runs a
-**persistent Node process** (Render, Railway, Fly.io, a VPS…). It will **not** work
-on serverless platforms like Vercel, which can't hold long-lived WebSocket
+**persistent Node process** (Render, Railway, Fly.io, a VPS…). It will **not**
+work on serverless platforms like Vercel, which can't hold long-lived WebSocket
 connections or shared in-memory state. One service serves both the client and
 Socket.IO from the same origin.
 
@@ -150,8 +195,8 @@ Equivalent manual settings (New → Web Service):
 `PORT` (the server reads it); no other config is needed since the client connects
 same-origin.
 
-> **Free tier note:** free Render web services sleep after ~15 min idle and cold-start
-> on the next request (~30–60s). A paid instance (~$7/mo) stays warm.
+> **Free tier note:** free Render web services sleep after ~15 min idle and
+> cold-start on the next request (~30–60s). A paid instance stays warm.
 
 ### Docker (Fly.io / VPS / any container host)
 
@@ -161,8 +206,17 @@ docker run -p 3000:3000 pacman-multiplayer
 # open http://localhost:3000
 ```
 
-The [`Dockerfile`](./Dockerfile) is multi-stage (build with dev deps → slim runtime
-with production deps only). Override the port with `-e PORT=8080 -p 8080:8080`.
+The [`Dockerfile`](./Dockerfile) is multi-stage (build with dev deps → slim
+runtime with production deps only). Override the port with `-e PORT=8080 -p 8080:8080`.
+
+## ⚙️ Configuration
+
+| Variable        | Default                 | Description                                          |
+| --------------- | ----------------------- | ---------------------------------------------------- |
+| `PORT`          | `3000`                  | Port the server listens on                           |
+| `HOST`          | `0.0.0.0`               | Host/interface to bind                               |
+| `NODE_ENV`      | `development`           | Set to `production` to serve the built client + CORS |
+| `CLIENT_ORIGIN` | `http://localhost:5173` | Allowed CORS origin in development                   |
 
 ## 🌐 Browser support
 
