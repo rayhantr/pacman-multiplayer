@@ -92,6 +92,17 @@ export default tseslint.config(
     },
   },
 
+  // Build/maintenance scripts (Node globals; console allowed)
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+    rules: {
+      'no-console': 'off',
+    },
+  },
+
   // Tests
   {
     files: ['**/*.test.ts', '**/*.spec.ts'],

@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Keep crawlers away from the realtime transport and the health probe.
+Disallow: /socket.io/
+Disallow: /health
+
+Sitemap: https://pacman-multiplayer.onrender.com/sitemap.xml

@@ -3,25 +3,105 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0f172a" />
+
+    <title>Multiplayer Pac-Man — Free Online Co-op & Versus Browser Game</title>
     <meta
       name="description"
-      content="Modern Multiplayer Pac-Man game built with TypeScript and Socket.IO"
+      content="Play Multiplayer Pac-Man free in your browser. Team up as Pac-Men or hunt as ghosts in real-time rooms for up to 10 players, with 6 maps and 9 power-ups."
     />
-    <meta name="keywords" content="pacman, multiplayer, game, typescript, socket.io" />
-    <title>Multiplayer Pac-Man</title>
+    <link rel="canonical" href="https://pacman-multiplayer.onrender.com/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- Open Graph (social link previews) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://pacman-multiplayer.onrender.com/" />
+    <meta property="og:site_name" content="Multiplayer Pac-Man" />
+    <meta
+      property="og:title"
+      content="Multiplayer Pac-Man — Free Online Co-op & Versus Browser Game"
+    />
+    <meta
+      property="og:description"
+      content="Real-time browser Pac-Man for up to 10 players. Team up as Pac-Men or hunt as ghosts across 6 maps with 9 power-ups."
+    />
+    <meta property="og:image" content="https://pacman-multiplayer.onrender.com/og-image.png" />
+    <meta
+      property="og:image:secure_url"
+      content="https://pacman-multiplayer.onrender.com/og-image.png"
+    />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Multiplayer Pac-Man — a Pac-Man chased by red, pink and cyan ghosts on a dark board."
+    />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Multiplayer Pac-Man — Free Online Browser Game" />
+    <meta
+      name="twitter:description"
+      content="Real-time browser Pac-Man for up to 10 players. Team up as Pac-Men or hunt as ghosts across 6 maps with 9 power-ups."
+    />
+    <meta name="twitter:image" content="https://pacman-multiplayer.onrender.com/og-image.png" />
+    <meta name="twitter:image:alt" content="Multiplayer Pac-Man key art with Pac-Man and ghosts." />
+
+    <!-- Icons & PWA manifest -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Fonts. Kept render-blocking on purpose: helmet's CSP (script-src 'self')
+         blocks inline onload handlers, so the async media-swap trick can't be
+         used; display=swap already prevents invisible text. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="icon" type="image/x-icon" href="/images/pacman-right.png" />
+
+    <!-- Structured data. Inline JSON-LD is an inert data block, exempt from
+         the CSP script-src directive. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "Multiplayer Pac-Man",
+        "url": "https://pacman-multiplayer.onrender.com/",
+        "description": "Real-time multiplayer Pac-Man in the browser. Team up as Pac-Men or hunt as ghosts in rooms of up to 10 players across 6 maps with 9 power-ups.",
+        "image": "https://pacman-multiplayer.onrender.com/og-image.png",
+        "inLanguage": "en",
+        "genre": ["Arcade", "Maze", "Multiplayer"],
+        "gamePlatform": "Web Browser",
+        "applicationCategory": "Game",
+        "operatingSystem": "Any (modern web browser)",
+        "playMode": "MultiPlayer",
+        "numberOfPlayers": { "@type": "QuantitativeValue", "minValue": 2, "maxValue": 10 },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
   </head>
   <body>
+    <noscript>
+      <p class="noscript-message">
+        Multiplayer Pac-Man is a real-time browser game and needs JavaScript enabled to play.
+      </p>
+    </noscript>
+
     <div class="container">
       <header>
-        <h1 class="game-title"><span class="game-title-dot" aria-hidden="true"></span>Pac-Man</h1>
+        <h1 class="game-title">
+          <span class="game-title-dot" aria-hidden="true"></span>Multiplayer Pac-Man
+        </h1>
+        <p class="tagline">
+          Free real-time browser Pac-Man — team up or hunt as ghosts, up to 10 players.
+        </p>
       </header>
 
       <main>
@@ -271,6 +351,16 @@
           </div>
         </div>
       </main>
+
+      <footer class="site-footer">
+        <h2>About Multiplayer Pac-Man</h2>
+        <p>
+          Multiplayer Pac-Man is a free, real-time multiplayer game you play right in your
+          browser. Create or join a room for up to 10 players, pick a side, and battle across 6
+          maps with 9 power-ups. Pac-Men win by collecting every pellet; ghosts win by catching
+          all the Pac-Men. No download or sign-up required.
+        </p>
+      </footer>
     </div>
 
     <!-- Non-blocking toast notifications -->

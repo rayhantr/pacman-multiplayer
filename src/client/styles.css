@@ -79,6 +79,24 @@
     clip-path: polygon(100% 22%, 48% 50%, 100% 78%, 100% 100%, 0 100%, 0 0, 100% 0);
   }
 
+  .tagline {
+    @apply text-[0.9rem] text-text-muted;
+  }
+
+  /* Shown only when JavaScript is disabled (search engines / no-JS users). */
+  .noscript-message {
+    @apply border-b border-border bg-surface p-4 text-center text-[0.9rem] text-text;
+  }
+
+  /* ----- Footer (crawlable about/how-to-play copy) ----------------------- */
+  .site-footer {
+    @apply mt-8 border-t border-border pt-4 text-[0.86rem] leading-relaxed text-text-muted;
+  }
+
+  .site-footer h2 {
+    @apply mb-2 text-[0.95rem] font-bold text-text;
+  }
+
   /* Stat pill: an icon + value sitting on one line. Fixed height + equal
      min-width so every chip in the bar matches (see --hud-h). */
   .stat {
@@ -807,6 +825,11 @@ body.game-active {
 
 /* Hide the title + connection pill so the game area can take the screen. */
 body.game-active header {
+  display: none;
+}
+
+/* Hide the about footer during play, too. */
+body.game-active .site-footer {
   display: none;
 }
 

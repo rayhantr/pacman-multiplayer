@@ -1,5 +1,7 @@
 # Multiplayer Pac-Man
 
+**Live:** https://pacman-multiplayer.onrender.com
+
 A real-time, browser-based multiplayer Pac-Man built with TypeScript. An
 authoritative Node/Express + Socket.IO server owns the game state; an HTML5
 Canvas client (bundled with Vite, styled with Tailwind CSS) renders it with
@@ -127,6 +129,14 @@ only pick up your own team's items** — the other team walks over them harmless
 | `npm run type-check`              | Type-check server and client (no emit)       |
 | `npm run quality`                 | type-check + lint + format check             |
 | `npm test` / `test:coverage`      | Run the Vitest suite                         |
+| `npm run generate:assets`         | Regenerate SEO/PWA images (see below)        |
+
+### SEO / social assets
+
+`public/og-image.png`, the PWA icons, and the favicons are generated from pure
+SVG shapes by `scripts/generate-assets.mjs` (uses the `sharp` devDependency).
+The outputs are committed, so production builds never need sharp — rerun
+`npm run generate:assets` only when the artwork changes.
 
 ## 🏗️ Project structure
 

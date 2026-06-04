@@ -3,7 +3,8 @@ import { createServer } from 'node:http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
-import { join, dirname } from 'node:path';
+import compression from 'compression';
+import { join, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RoomManager } from './roomManager.js';
 import type {
@@ -65,13 +66,42 @@ app.use(
 
 // Middleware
 app.use(cors({ origin: corsOrigin, credentials: true }));
+// gzip/deflate for compressible responses (HTML/CSS/JS/JSON/SVG/XML); already
+// compressed media (png/mp3) is skipped by content-type. Mounted before the
+// static middleware so all assets benefit — a direct Core Web Vitals win.
+app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve the built client (Vite output). Relative to the compiled server at
 // dist/server, the client bundle lives at dist/client.
 const clientDir = join(__dirname, '../client');
-app.use(express.static(clientDir));
+const ONE_YEAR_SECONDS = 31536000;
+app.use(
+  express.static(clientDir, {
+    setHeaders: (res, filePath) => {
+      // Vite-hashed bundles: the content hash is in the filename, so they can
+      // be cached forever.
+      if (filePath.includes(`${sep}assets${sep}`)) {
+        res.setHeader('Cache-Control', `public, max-age=${ONE_YEAR_SECONDS}, immutable`);
+        return;
+      }
+      // The SPA shell: always revalidate so deploys go live immediately.
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+        return;
+      }
+      // SEO files: short-lived so crawler-facing changes propagate quickly.
+      if (/(?:robots\.txt|sitemap\.xml|site\.webmanifest)$/.test(filePath)) {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        return;
+      }
+      // Un-hashed static assets (sprites, sounds, icons, og-image): long-lived
+      // but revalidatable, since their names are stable across deploys.
+      res.setHeader('Cache-Control', 'public, max-age=604800');
+    },
+  })
+);
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
@@ -82,10 +112,7 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// Serve the main HTML file
-app.get('/', (_req, res) => {
-  res.sendFile(join(clientDir, 'index.html'));
-});
+// '/' is served by express.static above (index.html, with the no-cache rule).
 
 // Initialize room manager
 const roomManager = new RoomManager(io);
