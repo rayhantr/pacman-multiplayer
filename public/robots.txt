@@ -5,4 +5,4 @@ Allow: /
 Disallow: /socket.io/
 Disallow: /health
 
-Sitemap: https://pacman-multiplayer.onrender.com/sitemap.xml
+Sitemap: https://pmpr.sindbug.com/sitemap.xml
