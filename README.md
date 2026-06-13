@@ -7,9 +7,9 @@
 Pac-Men race to clear the board while ghosts hunt them down. A Node/Express + Socket.IO server owns
 the game state; an HTML5 Canvas client renders it with smooth interpolation.
 
-[**▶&nbsp; Play it live**](https://pacman-multiplayer.onrender.com) &nbsp;·&nbsp; [Features](#-features) &nbsp;·&nbsp; [Quick start](#-installation) &nbsp;·&nbsp; [How to play](#-how-to-play) &nbsp;·&nbsp; [Deployment](#-deployment)
+[**▶&nbsp; Play it live**](https://pmpr.sindbug.com) &nbsp;·&nbsp; [Features](#-features) &nbsp;·&nbsp; [Quick start](#-installation) &nbsp;·&nbsp; [How to play](#-how-to-play) &nbsp;·&nbsp; [Deployment](#-deployment)
 
-[![Play live](https://img.shields.io/badge/play-pacman--multiplayer.onrender.com-FFD700?style=flat-square)](https://pacman-multiplayer.onrender.com)
+[![Play live](https://img.shields.io/badge/play-pacman--multiplayer.onrender.com-FFD700?style=flat-square)](https://pmpr.sindbug.com)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![Socket.IO](https://img.shields.io/badge/Socket.IO-4.8-010101?style=flat-square&logo=socketdotio&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-22%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)
