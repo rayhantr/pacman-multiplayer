@@ -4,12 +4,12 @@
   "type": "module",
   "main": "dist/server/index.js",
   "scripts": {
-    "build": "npm run build:server && npm run build:client",
+    "build": "yarn build:server && yarn build:client",
     "build:server": "tsc -p tsconfig.server.json",
     "build:client": "vite build",
     "generate:assets": "node scripts/generate-assets.mjs",
     "start": "node dist/server/index.js",
-    "dev": "concurrently -n server,client -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
+    "dev": "concurrently -n server,client -c blue,green \"yarn dev:server\" \"yarn dev:client\"",
     "dev:server": "tsx --watch src/server/index.ts",
     "dev:client": "vite",
     "preview": "vite preview",
@@ -18,9 +18,9 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "type-check": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "quality": "npm run type-check && npm run lint && npm run format:check",
+    "quality": "yarn type-check && yarn lint && yarn format:check",
     "clean": "rimraf dist",
-    "prebuild": "npm run clean",
+    "prebuild": "yarn clean",
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
@@ -34,13 +34,9 @@
     "game",
     "realtime"
   ],
-  "author": "",
+  "author": "Rayhan",
   "license": "ISC",
   "description": "Modern Multiplayer Pac-Man game built with TypeScript and Socket.IO",
-  "engines": {
-    "node": ">=22.12.0",
-    "npm": ">=10.0.0"
-  },
   "dependencies": {
     "compression": "^1.8.0",
     "cors": "^2.8.6",

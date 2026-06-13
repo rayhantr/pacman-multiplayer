@@ -1,16 +1,47 @@
-# Multiplayer Pac-Man
+<div align="center">
 
-**Live:** https://pacman-multiplayer.onrender.com
+# 👻 Multiplayer Pac-Man
 
-A real-time, browser-based multiplayer Pac-Man built with TypeScript. An
-authoritative Node/Express + Socket.IO server owns the game state; an HTML5
-Canvas client (bundled with Vite, styled with Tailwind CSS) renders it with
-smooth interpolation.
+### Real-time, browser-based multiplayer Pac-Man — up to 10 players, two teams, one authoritative server
 
-Up to **10 players** share a room and split into two teams — Pac-Men race to
-clear the board while ghosts hunt them down. The server resolves all movement,
-scoring, collisions, and win/lose conditions and broadcasts the result to every
-client over WebSockets.
+Pac-Men race to clear the board while ghosts hunt them down. A Node/Express + Socket.IO server owns
+the game state; an HTML5 Canvas client renders it with smooth interpolation.
+
+[**▶&nbsp; Play it live**](https://pacman-multiplayer.onrender.com) &nbsp;·&nbsp; [Features](#-features) &nbsp;·&nbsp; [Quick start](#-installation) &nbsp;·&nbsp; [How to play](#-how-to-play) &nbsp;·&nbsp; [Deployment](#-deployment)
+
+[![Play live](https://img.shields.io/badge/play-pacman--multiplayer.onrender.com-FFD700?style=flat-square)](https://pacman-multiplayer.onrender.com)
+![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Socket.IO](https://img.shields.io/badge/Socket.IO-4.8-010101?style=flat-square&logo=socketdotio&logoColor=white)
+![Node](https://img.shields.io/badge/Node-22%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white)
+![License: ISC](https://img.shields.io/badge/license-ISC-3da639?style=flat-square)
+
+<img src="public/og-image.png" alt="Multiplayer Pac-Man" width="640">
+
+</div>
+
+---
+
+Up to **10 players** share a room and split into two teams — Pac-Men race to clear the board while
+ghosts hunt them down. The server resolves all movement, scoring, collisions, and win/lose conditions
+and broadcasts the result to every client over WebSockets, so the client and server protocols can
+never drift.
+
+## Contents
+
+- [Features](#-features)
+- [Tech stack](#-tech-stack)
+- [Installation](#-installation)
+- [Running the game](#-running-the-game)
+- [How to play](#-how-to-play) · [Power-ups](#power-ups)
+- [Scripts](#-scripts)
+- [Project structure](#-project-structure)
+- [Security](#-security)
+- [Deployment](#-deployment)
+- [Configuration](#-configuration)
+- [License](#-license)
+
+---
 
 ## ✨ Features
 
@@ -31,7 +62,9 @@ client over WebSockets.
 - **Polished Canvas client** — interpolated movement, particle effects, power-up
   auras, a self-marker, and sound.
 
-## 🛠️ Tech Stack
+---
+
+## 🛠️ Tech stack
 
 | Area     | Technology                                                                                  |
 | -------- | ------------------------------------------------------------------------------------------- |
@@ -41,22 +74,28 @@ client over WebSockets.
 | Client   | HTML5 Canvas, Vite 8, Tailwind CSS 4, socket.io-client                                      |
 | Tooling  | ESLint 10 (flat config) + typescript-eslint, Prettier 3, Vitest 4, tsx, Husky + lint-staged |
 
+---
+
 ## 📦 Installation
+
+This project uses **Yarn** (Yarn 1.x — Classic).
 
 ```bash
 git clone <repository-url>
 cd pacman-multiplayer
-npm install
+yarn install
 ```
 
 Requires **Node.js ≥ 22.12**.
+
+---
 
 ## 🎮 Running the game
 
 ### Development
 
 ```bash
-npm run dev
+yarn dev
 ```
 
 This starts two processes:
@@ -71,12 +110,14 @@ connects with a plain same-origin `io()` call in both dev and production.
 ### Production
 
 ```bash
-npm run build   # tsc (server) -> dist/server, vite build (client) -> dist/client
-npm start       # node dist/server/index.js
+yarn build   # tsc (server) -> dist/server, vite build (client) -> dist/client
+yarn start   # node dist/server/index.js
 ```
 
 In production the Express server serves the built client from `dist/client` and
 handles Socket.IO on the same origin (default port `3000`, override with `PORT`).
+
+---
 
 ## 🎯 How to play
 
@@ -116,27 +157,31 @@ only pick up your own team's items** — the other team walks over them harmless
 | ❄️ Ghost Freeze | Freezes the opposing **Pac-Men** in place for 2.5 s |
 | 👻 Ghost Phase  | Pass through walls for 3 s                          |
 
+---
+
 ## 📜 Scripts
 
-| Command                           | Description                                  |
-| --------------------------------- | -------------------------------------------- |
-| `npm run dev`                     | Run server + Vite dev server with hot reload |
-| `npm run build`                   | Build server and client for production       |
-| `npm start`                       | Run the production server                    |
-| `npm run preview`                 | Preview the production client build (Vite)   |
-| `npm run lint` / `lint:fix`       | Lint with ESLint                             |
-| `npm run format` / `format:check` | Format with Prettier                         |
-| `npm run type-check`              | Type-check server and client (no emit)       |
-| `npm run quality`                 | type-check + lint + format check             |
-| `npm test` / `test:coverage`      | Run the Vitest suite                         |
-| `npm run generate:assets`         | Regenerate SEO/PWA images (see below)        |
+| Command                        | Description                                  |
+| ------------------------------ | -------------------------------------------- |
+| `yarn dev`                     | Run server + Vite dev server with hot reload |
+| `yarn build`                   | Build server and client for production       |
+| `yarn start`                   | Run the production server                    |
+| `yarn preview`                 | Preview the production client build (Vite)   |
+| `yarn lint` / `lint:fix`       | Lint with ESLint                             |
+| `yarn format` / `format:check` | Format with Prettier                         |
+| `yarn type-check`              | Type-check server and client (no emit)       |
+| `yarn quality`                 | type-check + lint + format check             |
+| `yarn test` / `test:coverage`  | Run the Vitest suite                         |
+| `yarn generate:assets`         | Regenerate SEO/PWA images (see below)        |
 
 ### SEO / social assets
 
 `public/og-image.png`, the PWA icons, and the favicons are generated from pure
 SVG shapes by `scripts/generate-assets.mjs` (uses the `sharp` devDependency).
 The outputs are committed, so production builds never need sharp — rerun
-`npm run generate:assets` only when the artwork changes.
+`yarn generate:assets` only when the artwork changes.
+
+---
 
 ## 🏗️ Project structure
 
@@ -167,6 +212,8 @@ pacman-multiplayer/
 └── tsconfig.client.json      # Client type-check (DOM libs, noEmit)
 ```
 
+---
+
 ## 🔒 Security
 
 - `helmet` sets a Content-Security-Policy and secure headers tuned for this app
@@ -177,6 +224,8 @@ pacman-multiplayer/
   movement) is validated server-side; the server is the sole authority on game
   state.
 - Room names are rendered with `textContent`, so they can't inject HTML.
+
+---
 
 ## 🚀 Deployment
 
@@ -193,17 +242,17 @@ The repo includes [`render.yaml`](./render.yaml). In the Render dashboard:
 
 Equivalent manual settings (New → Web Service):
 
-| Setting           | Value                                   |
-| ----------------- | --------------------------------------- |
-| Runtime           | Node                                    |
-| Build command     | `npm ci --include=dev && npm run build` |
-| Start command     | `npm start`                             |
-| Health check path | `/health`                               |
-| Env var           | `NODE_ENV=production`                   |
+| Setting           | Value                                          |
+| ----------------- | ---------------------------------------------- |
+| Runtime           | Node                                           |
+| Build command     | `yarn install --frozen-lockfile && yarn build` |
+| Start command     | `yarn start`                                   |
+| Health check path | `/health`                                      |
+| Env var           | `NODE_ENV=production`                          |
 
-`--include=dev` is required so the build gets `typescript`/`vite`. Render injects
-`PORT` (the server reads it); no other config is needed since the client connects
-same-origin.
+`yarn` installs devDependencies regardless of `NODE_ENV`, so the build always
+gets `typescript`/`vite`. Render injects `PORT` (the server reads it); no other
+config is needed since the client connects same-origin.
 
 > **Free tier note:** free Render web services sleep after ~15 min idle and
 > cold-start on the next request (~30–60s). A paid instance stays warm.
@@ -219,6 +268,8 @@ docker run -p 3000:3000 pacman-multiplayer
 The [`Dockerfile`](./Dockerfile) is multi-stage (build with dev deps → slim
 runtime with production deps only). Override the port with `-e PORT=8080 -p 8080:8080`.
 
+---
+
 ## ⚙️ Configuration
 
 | Variable        | Default                 | Description                                          |
@@ -228,10 +279,10 @@ runtime with production deps only). Override the port with `-e PORT=8080 -p 8080
 | `NODE_ENV`      | `development`           | Set to `production` to serve the built client + CORS |
 | `CLIENT_ORIGIN` | `http://localhost:5173` | Allowed CORS origin in development                   |
 
-## 🌐 Browser support
+**Browser support:** modern browsers with ES2023, WebSocket, and HTML5 Canvas support.
 
-Modern browsers with ES2023, WebSocket, and HTML5 Canvas support.
+---
 
 ## 📝 License
 
-ISC.
+ISC © Rayhan

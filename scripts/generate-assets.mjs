@@ -3,7 +3,7 @@
  * (no external artwork): the social-preview og-image, the PWA icon set, the
  * Apple touch icon, and the favicons.
  *
- * Run with: npm run generate:assets
+ * Run with: yarn generate:assets
  *
  * The outputs are committed to the repo, so production builds never need
  * sharp — rerun this script only when the artwork changes.

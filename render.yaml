@@ -6,10 +6,10 @@ services:
     name: pacman-multiplayer
     runtime: node
     plan: free
-    # --include=dev is required: NODE_ENV=production would otherwise make
-    # `npm ci` skip typescript/vite, which the build needs.
-    buildCommand: npm ci --include=dev && npm run build
-    startCommand: npm start
+    # yarn installs devDependencies regardless of NODE_ENV, so the build gets
+    # typescript/vite without any extra flag.
+    buildCommand: yarn install --frozen-lockfile && yarn build
+    startCommand: yarn start
     healthCheckPath: /health
     autoDeploy: true
     envVars:
