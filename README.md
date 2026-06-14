@@ -286,3 +286,7 @@ runtime with production deps only). Override the port with `-e PORT=8080 -p 8080
 ## 📝 License
 
 ISC © Rayhan
+
+---
+
+<p align="center">Bugged by <img src="public/SINDBUG.gif" alt="SINDBUG" height="24"></p>
