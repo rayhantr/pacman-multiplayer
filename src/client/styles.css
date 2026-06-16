@@ -97,6 +97,16 @@
     @apply mb-2 text-[0.95rem] font-bold text-text;
   }
 
+  /* Attribution links (sindbug gif + GitHub mark). Hover via CSS — the page's
+     CSP (script-src 'self') blocks inline event handlers. */
+  .bugged-by a {
+    @apply transition-opacity;
+  }
+
+  .bugged-by a:hover {
+    @apply opacity-60;
+  }
+
   /* Stat pill: an icon + value sitting on one line. Fixed height + equal
      min-width so every chip in the bar matches (see --hud-h). */
   .stat {
