@@ -47,7 +47,8 @@ const PORT = parseInt(process.env['PORT'] ?? '3000', 10);
 const HOST = process.env['HOST'] ?? '0.0.0.0';
 
 // Security headers (helmet) with a CSP tuned for this app: same-origin assets,
-// Google Fonts, the Socket.IO WebSocket, and audio playback.
+// Google Fonts, the hosted sindbug.com credit gif, the Socket.IO WebSocket, and
+// audio playback.
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -56,7 +57,7 @@ app.use(
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-        imgSrc: ["'self'", 'data:'],
+        imgSrc: ["'self'", 'data:', 'https://sindbug.com'],
         connectSrc: ["'self'", 'ws:', 'wss:'],
         mediaSrc: ["'self'"],
       },
